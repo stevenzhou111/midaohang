@@ -340,8 +340,8 @@ routes = [{ pattern = "favicon.yourdomain.com/*", zone_name = "yourdomain.com" }
 
 ## 自检页（tests.html）
 
-改完 `data.js`、加完链接和图标，**打开 `tests.html` 看一眼**（本地双击或线上
-`https://midaohang.pages.dev/tests.html`）。它是一张零依赖的检查表，
+改完 `data.js`、加完链接和图标，**打开 `tests.html` 看一眼**（本地双击，或线上
+<https://midaohang.pages.dev/tests> —— Pages 会把 `tests.html` 规范跳转到 `/tests`）。它是一张零依赖的检查表，
 **刻意不加载 `app.js`** —— 独立重新实现一遍规则，才能发现 `app.js` 自己的 bug。
 
 检查项：
