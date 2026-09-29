@@ -165,6 +165,12 @@ Cloudflare 控制台 → **Workers 和 Pages** → **创建** → **Pages** → 
 > （先 `cmd /c "npx --yes wrangler@latest login"` 授权一次；`-PackOnly` 只打包不上传）。
 > 不建议 `wrangler pages deploy .`——那会把 README、`*.ps1`、`favicon-worker/` 一起发到公网。
 
+> **注意**：方式 A 的输出目录是 `/`，等于把仓库里的 README、`LICENSE`、`*.ps1`、
+> `favicon-worker/` 也发布出去（都是明文、无密钥，属无害但多余）。
+> 只想发运行期文件的话，在 Pages 构建设置里填：
+> **构建命令** `mkdir -p _site && cp index.html styles.css app.js data.js icons.js icons-img.js manifest.webmanifest sw.js icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png _headers 404.html robots.txt _site/`
+> **输出目录** `_site`（Linux 构建环境，和 `deploy.ps1` 打包的是同一批 15 个文件）。
+
 ## 自己加了链接，图标自动来（get-icons.ps1）
 
 新增链接后只要跑一次脚本，它会**自动扫出还没有图标的域名 → 抓站点 favicon →

@@ -593,6 +593,13 @@
     const holder = document.createElement("span");
     holder.className = "fav-svg";
     holder.innerHTML = svg;
+    /* icons.js 里的字符串带 role="img" 却没有可访问名，读屏会念出一堆"图片"。
+       图标旁边本来就有文字名称，属于装饰性图形 → 去掉 role、标记 aria-hidden */
+    const node = holder.firstElementChild;
+    if (node && node.tagName.toLowerCase() === "svg") {
+      node.removeAttribute("role");
+      node.setAttribute("aria-hidden", "true");
+    }
     wrap.appendChild(holder);
     /* 同步加类：后台标签页 rAF 会被节流，图标不能依赖它才显示 */
     wrap.classList.add("has-svg");
