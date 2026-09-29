@@ -26,7 +26,28 @@
     get(key, fallback) {
       try {
         const raw = localStorage.getItem(key);
-        return raw === null ? fallback : JSON.parse(raw);
+        if (raw === null) return fallback;
+        const val = JSON.parse(raw);
+        /* 只防"解析失败"不够：JSON 合法但类型错（null / 42 / "x" / 对象）时，
+           下面 .find()、.length、forEach 会直接抛错，甚至让整页渲染崩掉。
+           所以这里统一定形状，脏数据顺手清掉，免得每次点击都重演。 */
+        if (val === null || val === undefined) {
+          localStorage.removeItem(key);
+          return fallback;
+        }
+        if (Array.isArray(fallback) && !Array.isArray(val)) {
+          localStorage.removeItem(key);
+          return fallback;
+        }
+        if (typeof fallback === "boolean" && typeof val !== "boolean") {
+          localStorage.removeItem(key);
+          return fallback;
+        }
+        if (typeof fallback === "number" && !Number.isFinite(val)) {
+          localStorage.removeItem(key);
+          return fallback;
+        }
+        return val;
       } catch (e) {
         return fallback;
       }
@@ -224,6 +245,15 @@
     content.appendChild(panel);
   }
 
+  const SAFE_URL = /^(https?:\/\/)/i;
+
+  /** 只放行 http(s) 链接。data.js 里的条目在 validateConfig 里已经过这关，
+      这里再兜一次是因为「常用站点」是从 localStorage 读出来的——那里没有校验。 */
+  function safeUrl(u) {
+    const s = String(u == null ? "" : u).trim();
+    return SAFE_URL.test(s) ? s : "";
+  }
+
   function validateConfig(site) {
     const fatal = [];
     const issues = [];
@@ -276,7 +306,7 @@
           issues.push("链接「" + link.name + "」缺少 url，已跳过");
           return;
         }
-        if (!/^https?:\/\//i.test(String(link.url))) {
+        if (!safeUrl(link.url)) {
           issues.push("链接「" + link.name + "」的 url 必须以 http:// 或 https:// 开头，已跳过");
           return;
         }
@@ -291,7 +321,6 @@
 
   const SITE = window.SITE;
   const validation = validateConfig(SITE);
-
   if (validation.fatal.length) {
     buildErrorPanel("配置文件出错了", validation.fatal, "error");
     return;
@@ -307,6 +336,15 @@
     },
     SITE.settings || {}
   );
+
+  /* settings 也要防脏值：recentCount 传 1.5 / -1 / "8" 都会让 slice() 出乎意料 */
+  (function normalizeSettings() {
+    const n = +SETTINGS.recentCount;
+    SETTINGS.recentCount = Number.isFinite(n) ? Math.max(0, Math.min(50, Math.floor(n))) : 8;
+    SETTINGS.showRecent = SETTINGS.showRecent !== false;
+    SETTINGS.linkOrder = SETTINGS.linkOrder === "name" ? "name" : "config";
+    SETTINGS.faviconProxy = typeof SETTINGS.faviconProxy === "string" ? SETTINGS.faviconProxy.trim() : "";
+  })();
   const CATEGORIES = validation.categories;
 
   /* ───────────────────────── 页头 ───────────────────────── */
@@ -442,8 +480,8 @@
       proxyState = "off";
       return Promise.resolve();
     }
-    const until = store.get("nav:proxy-off-until", 0);
-    if (typeof until === "number" && until > Date.now()) {
+    const until = +store.get("nav:proxy-off-until", 0);
+    if (Number.isFinite(until) && until > Date.now()) {
       proxyState = "off";
       return Promise.resolve();
     }
@@ -462,8 +500,14 @@
   /** 探测 Google 图标服务是否可达（1.5 秒超时，失败记 6 小时）。
       国内基本不通；不通就整页放弃远程兜底，几十个 favicon 请求不会再吊死 */
   function detectRemoteIcons() {
-    const until = store.get("nav:remote-off-until", 0);
-    if (typeof until === "number" && until > Date.now()) {
+    /* 配了自己的 favicon-worker 就没必要探 Google：探测本身等于每 6 小时
+       往 Google 泄露一次本站 Referer，而且对图标加载毫无帮助。 */
+    if (proxyBase()) {
+      remoteState = "off";
+      return Promise.resolve();
+    }
+    const until = +store.get("nav:remote-off-until", 0);
+    if (Number.isFinite(until) && until > Date.now()) {
       remoteState = "off";
       return Promise.resolve();
     }
@@ -473,9 +517,13 @@
       if (ctrl) ctrl.abort();
     }, 1500);
 
+    /* mode:"no-cors" 是故意的：Google 不发 CORS 头，改成 cors 会让"其实通"的
+       情况也被判成不通。这里的判定标准是"这个请求能不能发完"，
+       响应本身不透明也没关系 —— 真正取图标走的是 <img>，不受 CORS 限制。 */
     return fetch("https://www.google.com/s2/favicons?sz=64&domain=example.com", {
       mode: "no-cors",
       cache: "no-store",
+      referrerPolicy: "no-referrer",
       signal: ctrl ? ctrl.signal : undefined,
     })
       .then(() => {
@@ -665,27 +713,26 @@
   /* ───────────────────────── 点击记录与常用站点 ───────────────────────── */
 
   function recordClick(link) {
-    if (!SETTINGS.showRecent) return;
+    if (!SETTINGS.showRecent || !link || !safeUrl(link.url)) return;
     const list = store.get("nav:recent", []);
-    const prev = list.find((item) => item.url === link.url);
-    const next = list.filter((item) => item.url !== link.url);
+    const prev = list.find((item) => item && item.url === link.url);
+    const base = prev && Number.isFinite(+prev.count) ? Math.max(0, +prev.count) : 0;
+    const next = list.filter((item) => item && item.url !== link.url);
     next.unshift({
       url: link.url,
       name: link.name,
       desc: link.desc || "",
       icon: link.icon || "",
       py: link.py || "",
-      count: (prev ? prev.count : 0) + 1,
+      count: Math.min(9999, base + 1),
       ts: Date.now(),
     });
     store.set("nav:recent", next.slice(0, 30));
     renderRecent();
   }
 
-  function openLink(link) {
-    recordClick(link);
-    window.open(link.url, "_blank", "noopener");
-  }
+  /* 只记账，跳转交给 <a> 自己的 href —— window.open 被拦截时会静默失败，
+     用户点了完全没反应；而且 <a> 原生支持中键/右键/alt+点击。 */
 
   /* ───────────────────────── 链接块 ───────────────────────── */
 
@@ -694,7 +741,7 @@
   function buildPill(link) {
     const a = document.createElement("a");
     a.className = "pill";
-    a.href = link.url;
+    a.href = safeUrl(link.url) || "#";
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.title = (link.name || "") + (link.desc ? " — " + link.desc : "");
@@ -730,9 +777,13 @@
         ev.preventDefault(); // 刚拖完，别把 drop 当成点击
         return;
       }
-      if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; // 保留浏览器多标签行为
-      ev.preventDefault();
-      openLink(link);
+      /* 中键 / Ctrl / Cmd / Shift / Alt 全部交给浏览器（开新标签、下载等），
+         这时只记账、不拦截；普通左键也不拦截，交给 <a href> 自己去开新窗口。 */
+      if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) {
+        try { recordClick(link); } catch (e) {}
+        return;
+      }
+      try { recordClick(link); } catch (e) {}
     });
 
     return a;
@@ -778,7 +829,7 @@
   }
 
   function buildHay(link, category) {
-    const l = (s) => String(s == null ? "" : s).toLowerCase();
+    const l = (s) => foldText(s); // 与 tokenize 同一套归一化，否则全角输入匹配不上
     const cat = category || {};
     const aliasMap = (window.SITE && window.SITE.categoryAlias) || {};
     return {
@@ -861,12 +912,18 @@
       });
     });
 
+    /* 只认真正的 true：旧版本/手改 localStorage 可能存成字符串 "false"，
+       !!stored 会把它当成"收起"，用户却以为自己是展开的 */
     const stored = store.get("nav:collapse:" + category.name, null);
-    const collapsed = stored === null ? !!category.collapsed : !!stored;
+    const collapsed = stored === null ? !!category.collapsed : stored === true;
     setCollapsed(panel, head, collapsed);
 
     head.addEventListener("click", () => {
       if (Date.now() - dragEndAt < 300) return; // 刚拖完，别顺手折叠了
+      /* 搜索时 .is-collapsed 的面板被 CSS 强制展开（.is-searching 规则），
+         这时再点标题会"看起来什么都没发生"——因为状态和视觉已经不同步了。
+         直接忽略这次点击，等搜索结束。 */
+      if (content.classList.contains("is-searching")) return;
       const next = !panel.classList.contains("is-collapsed");
       setCollapsed(panel, head, next);
       store.set("nav:collapse:" + category.name, next);
@@ -892,9 +949,16 @@
   function renderRecent() {
     let items = [];
     if (SETTINGS.showRecent) {
+      /* 脏数据防御：count / ts 可能被写成字符串或缺失，
+         直接相减会得到 NaN，排序结果随引擎而变。这里统一归一化成数字。 */
       items = store
         .get("nav:recent", [])
-        .slice()
+        .filter((item) => item && safeUrl(item.url))
+        .map((item) => Object.assign({}, item, {
+          url: safeUrl(item.url),
+          count: Number.isFinite(+item.count) ? Math.max(0, +item.count) : 0,
+          ts: Number.isFinite(+item.ts) ? +item.ts : 0,
+        }))
         .sort((a, b) => b.count - a.count || b.ts - a.ts)
         .slice(0, SETTINGS.recentCount);
     }
@@ -986,17 +1050,59 @@
       store.set("nav:panel-order", order);
     }
 
+    /* 键盘换序用的分类移动（Alt+↑/↓），侧边栏同步跟动 */
+    function movePanelBy(entry, dir) {
+      const panel = entry.panel;
+      if (!panel || panel.id === "panel-recent") return; // 常用站点固定在最前
+      const sib = dir < 0 ? panel.previousElementSibling : panel.nextElementSibling;
+      if (!sib) return;
+      if (dir < 0 && sib.id === "panel-recent") return; // 不越过固定面板
+      if (dir < 0) content.insertBefore(panel, sib);
+      else content.insertBefore(sib, panel);
+
+      const side = entry.sideItem;
+      const sideSib = dir < 0 ? side.previousElementSibling : side.nextElementSibling;
+      if (side && sideSib) {
+        if (dir < 0) sideNav.insertBefore(side, sideSib);
+        else sideNav.insertBefore(sideSib, side);
+      }
+
+      savePanelOrder();
+      sortTip.classList.add("is-on");
+      const head = panel.querySelector(".panel-head");
+      if (head) head.focus();
+    }
+
     function endDrag() {
       const state = dragState;
       if (!state) return;
       dragState = null;
       state.el.classList.remove("is-dragging");
       clearTargets();
+      if (!state.moved) return; // 没真正移动：不写存储，也不该吞掉后续点击
+      /* 指针拖出容器松手时，DOM 已经被 insertBefore 改过了，
+         但那是个"半成品"位置。这里统一还原到 dragstart 前的顺序，
+         只有真的落在合法容器里（dropped）才提交。 */
+      if (!state.dropped) {
+        state.restore();
+        return;
+      }
       dragEndAt = Date.now();
-      if (!state.moved) return;
       if (state.type === "pill") savePillOrder(state.grid, state.name);
       else savePanelOrder();
       sortTip.classList.add("is-on");
+    }
+
+    /* HTML5 拖放在触摸设备（iOS Safari / Android Chrome）默认不触发，
+       与其让用户以为"坏了"，不如先探测能力：触摸端不开启拖拽，
+       改用下面的 Alt+↑/↓ 键盘通道。 */
+    const NATIVE_DND =
+      "draggable" in document.createElement("div") &&
+      (window.matchMedia("(hover: hover) and (pointer: fine)").matches ||
+        !window.matchMedia("(pointer: coarse)").matches);
+
+    function snapshotKids(el) {
+      return Array.prototype.map.call(el.children, (c) => c);
     }
 
     panels.forEach((entry) => {
@@ -1006,12 +1112,40 @@
       /* ── 分类内：卡片换位置 ── */
       if (grid) {
         const pills = grid.querySelectorAll(".pill");
-        for (let i = 0; i < pills.length; i++) pills[i].draggable = true;
+        if (NATIVE_DND) for (let i = 0; i < pills.length; i++) pills[i].draggable = true;
 
-        grid.addEventListener("dragstart", (ev) => {
+        /* 键盘换序：Alt + ↑/↓。HTML5 拖拽没有键盘等价路径，
+           这是唯一不依赖指针的排序方式（WCAG 2.1.1）。 */
+        grid.addEventListener("keydown", (ev) => {
+          if (!ev.altKey || (ev.key !== "ArrowUp" && ev.key !== "ArrowDown")) return;
           const pill = ev.target.closest ? ev.target.closest(".pill") : null;
           if (!pill || pill.parentNode !== grid) return;
-          dragState = { type: "pill", el: pill, grid: grid, name: entry.name, moved: false };
+          const sib = ev.key === "ArrowUp" ? pill.previousElementSibling : pill.nextElementSibling;
+          if (!sib) return;
+          ev.preventDefault();
+          if (ev.key === "ArrowUp") grid.insertBefore(pill, sib);
+          else grid.insertBefore(sib, pill);
+          savePillOrder(grid, entry.name);
+          sortTip.classList.add("is-on");
+          pill.focus();
+        });
+
+        grid.addEventListener("dragstart", (ev) => {
+          if (dragState) return; // 面板标题拖拽进行中，别被卡片抢走
+          const pill = ev.target.closest ? ev.target.closest(".pill") : null;
+          if (!pill || pill.parentNode !== grid) return;
+          /* 必须在 dragstart 这一刻把顺序抓下来。写成 restore 时再 snapshot
+             的话，拿到的是"已经被 dragover 改过的顺序"，还原等于什么都不做。 */
+          const before = snapshotKids(grid);
+          dragState = {
+            type: "pill",
+            el: pill,
+            grid: grid,
+            name: entry.name,
+            moved: false,
+            dropped: false,
+            restore: () => before.forEach((c) => grid.appendChild(c)),
+          };
           pill.classList.add("is-dragging");
           try {
             ev.dataTransfer.setData("text/plain", pill.dataset.name || "");
@@ -1048,10 +1182,22 @@
 
       /* ── 分类间：拖标题栏换分类顺序 ── */
       if (head) {
-        head.draggable = true;
+        if (NATIVE_DND) head.draggable = true;
         head.addEventListener("dragstart", (ev) => {
           if (dragState) return;
-          dragState = { type: "panel", el: entry.panel, moved: false };
+          /* 同上：dragstart 时就抓两份顺序（面板 + 侧边栏），别等还原时再抓 */
+          const beforeContent = snapshotKids(content);
+          const beforeSide = snapshotKids(sideNav);
+          dragState = {
+            type: "panel",
+            el: entry.panel,
+            moved: false,
+            dropped: false,
+            restore: () => {
+              beforeContent.forEach((c) => content.appendChild(c));
+              beforeSide.forEach((c) => sideNav.appendChild(c));
+            },
+          };
           entry.panel.classList.add("is-dragging");
           try {
             ev.dataTransfer.setData("text/plain", entry.name);
@@ -1059,6 +1205,13 @@
           } catch (e) {}
         });
         head.addEventListener("dragend", endDrag);
+
+        /* 键盘换序：Alt + ↑/↓ 移动整个分类（侧边栏与面板同步） */
+        head.addEventListener("keydown", (ev) => {
+          if (!ev.altKey || (ev.key !== "ArrowUp" && ev.key !== "ArrowDown")) return;
+          ev.preventDefault();
+          movePanelBy(entry, ev.key === "ArrowUp" ? -1 : 1);
+        });
       }
     });
 
@@ -1086,15 +1239,28 @@
     });
 
     content.addEventListener("drop", (ev) => {
-      ev.preventDefault();
+      /* 只在真的在拖我们的卡片/面板时吃掉默认行为，
+         否则用户往正文里拖文件或文本进来，会被无声地吞掉 */
+      if (dragState) ev.preventDefault();
+      if (dragState) dragState.dropped = true;
     });
     document.addEventListener("dragend", endDrag);
   }
 
   /* ───────────────────────── 搜索：分词 / 打分 / 高亮 ───────────────────────── */
 
+  /* NFKC 归一化：全角字母数字（ＡＢＣ、１２３）、部分输入法打出的兼容字符
+     都能被归一化成半角，搜得到；不做的话中文用户复制到全角字符就是零结果 */
+  function foldText(s) {
+    try {
+      return String(s == null ? "" : s).normalize("NFKC").toLowerCase();
+    } catch (e) {
+      return String(s == null ? "" : s).toLowerCase();
+    }
+  }
+
   function tokenize(query) {
-    return String(query).toLowerCase().trim().split(/\s+/).filter(Boolean);
+    return foldText(query).trim().split(/\s+/).filter(Boolean);
   }
 
   /** 子序列匹配：返回惩罚值（越小越好），-1 表示不匹配 */
@@ -1164,6 +1330,9 @@
 
   function highlightFragment(text, tokens) {
     const lower = text.toLowerCase();
+    /* 少数字符（Turkish İ 之类）小写后长度会变（U+0130 → i + U+0307），
+       这时用小写串的索引去切原文会整体错位。长度不一致就干脆不高亮。 */
+    if (lower.length !== text.length) return document.createTextNode(text);
     const ranges = [];
     tokens.forEach((t) => {
       if (!t) return;
@@ -1303,11 +1472,19 @@
     setActive(0);
   }
 
+  /* 从搜索建议/回车走的是"程序跳转"，没有 <a> 兜底，所以这里用 location.assign。
+     记账包在 try 里：记账失败绝不能连带吞掉跳转。 */
+  function gotoLink(link) {
+    if (!link || !safeUrl(link.url)) return;
+    try { recordClick(link); } catch (e) {}
+    window.location.assign(link.url);
+  }
+
   function activateSuggestion(index) {
     const row = suggestionRows[index];
     if (!row) return;
     hideSuggestions();
-    if (row.type === "link") openLink(row.entry.link);
+    if (row.type === "link") gotoLink(row.entry.link);
     else searchWeb(input.value.trim());
   }
 
@@ -1499,17 +1676,26 @@
       return;
     }
     if (lastRanked.length) {
-      openLink(lastRanked[0].entry.link);
+      gotoLink(lastRanked[0].entry.link);
       input.select();
       return;
     }
     searchWeb(query);
   });
 
-  input.addEventListener("input", applyFilter);
+  /* 输入防抖：applyFilter 每次要重扫 199 条、重建 8 行建议（含 8 次建图标）。
+     不防抖时每敲一个字母都跑一遍，中低端手机上能明显感到输入发涩。 */
+  let filterTimer = 0;
+  function scheduleFilter() {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(applyFilter, 110);
+  }
+
+  input.addEventListener("input", scheduleFilter);
 
   /* 用 “/” 聚焦时，若框里已有内容，重新展示建议 */
   input.addEventListener("focus", () => {
+    clearTimeout(filterTimer);
     if (input.value.trim()) applyFilter();
   });
 
@@ -1606,8 +1792,14 @@
     Promise.all([detectProxy(), detectRemoteIcons()]).then(flushIcons);
     window.__APP_READY__ = true;
 
-    if (location.hash) {
-      const target = document.querySelector(location.hash);
+    /* 定位到某个分类：#panel-3
+       注意不要用 querySelector(location.hash) —— hash 是外部可控的 URL 输入，
+       `#"`、`#a{b` 这类畸形值会让 querySelector 抛 SyntaxError，
+       然后被外层 catch 吞成"整页错误面板"，等于一个坏链接就能让整站白屏。
+       getElementById 没有选择器语法，天然免疫。 */
+    if (location.hash && location.hash.length > 1) {
+      let target = null;
+      try { target = document.getElementById(decodeURIComponent(location.hash.slice(1))); } catch (e) { target = null; }
       if (target)
         setTimeout(() => {
           target.scrollIntoView({ block: "start" });

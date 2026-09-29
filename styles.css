@@ -533,6 +533,11 @@ body {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  /* 分类多 + 窗口矮时侧栏会溢出，必须能滚，
+     否则 JS 的 ensureSideItemVisible 在桌面端永远判定"不需要滚" */
+  overflow-y: auto;
+  max-height: calc(100vh - 140px);
+  scrollbar-width: thin;
 }
 
 .side-item {
@@ -626,6 +631,11 @@ body {
 .panel {
   scroll-margin-top: 24px;
   animation: panel-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* 视口外的面板跳过渲染：整页 21 个面板一次全画出来，滚动时每帧都要重新
+     合成这些背板模糊层，CPU 占用很高。contain-intrinsic-size 给个占位高度，
+     滚动条长度不受影响。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
 }
 
 @keyframes panel-in {
@@ -979,12 +989,14 @@ html[data-view="list"] .pill-arrow {
 }
 
 /* 分类标题栏 = 拖拽把手（鼠标按住拖动即可换分类顺序；
-   不设 touch-action，手机上标题栏仍是正常的滚动起点） */
-.panel-head {
+   不设 touch-action，手机上标题栏仍是正常的滚动起点）
+   注意要限定 [draggable="true"]：JS 在触摸设备上不会开启拖拽，
+   否则"常用站点"这种静态标题也会显示 grab 光标，点了却没反应。 */
+.panel-head[draggable="true"] {
   cursor: grab;
 }
 
-.panel-head:active {
+.panel-head[draggable="true"]:active {
   cursor: grabbing;
 }
 

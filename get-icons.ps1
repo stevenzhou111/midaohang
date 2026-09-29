@@ -105,6 +105,9 @@ function Invoke-CurlFile([string]$Url, [string]$OutFile) {
 
 function Resolve-Url([string]$base, [string]$href) {
   if ([string]::IsNullOrWhiteSpace($href)) { return $null }
+  # 内联图标（data:image/...）：原样返回。绝不能拿 base 去拼，
+  # 否则会被当成相对路径解析成 "https://站点/data:image/..." 之类的畸形 URL
+  if ($href -match '^\s*data:') { return $href.Trim() }
   if ($href.StartsWith('//')) { return 'https:' + $href }
   if ($href -match '^https?://') { return $href }
   try { return ([Uri]::new([Uri]$base, $href)).AbsoluteUri } catch { return $null }
@@ -113,16 +116,63 @@ function Resolve-Url([string]$base, [string]$href) {
 function Find-IconUrl([string]$html, [string]$base) {
   if (-not $html) { return $null }
   # rel="icon" / "shortcut icon" / "apple-touch-icon"（rel 在前）
+  # href 的正则必须"引号感知"：data: URI 里常有 xmlns='...' 这种单引号，
+  # 用 [^"']+ 会把值在第一个单引号处截断，写进 icons-img.js 的就是一个残缺图标
   $pat1 = '(?is)<link[^>]*rel\s*=\s*["'']([^"'']*icon[^"'']*)["''][^>]*>'
   foreach ($m in [regex]::Matches($html, $pat1)) {
-    $hm = [regex]::Match($m.Value, '(?is)href\s*=\s*["'']([^"'']+)["'']')
-    if ($hm.Success) { $u = Resolve-Url $base $hm.Groups[1].Value; if ($u) { return $u } }
+    $hm = [regex]::Match($m.Value, '(?is)href\s*=\s*(?:"([^"]+)"|''([^'']+)'')')
+    if ($hm.Success) {
+      $raw = if ($hm.Groups[1].Success) { $hm.Groups[1].Value } else { $hm.Groups[2].Value }
+      $u = Resolve-Url $base $raw; if ($u) { return $u }
+    }
   }
   # href 在前的写法
   $pat2 = '(?is)<link[^>]*href\s*=\s*["'']([^"'']+\.(?:ico|png|svg|jpe?g|webp|gif))["''][^>]*>'
   foreach ($m in [regex]::Matches($html, $pat2)) {
     $u = Resolve-Url $base $m.Groups[1].Value; if ($u) { return $u } }
   return $null
+}
+
+function Test-ImagePayload([string]$media, [string]$b64) {
+  # 完整性闸门：宁可少收，也不能把截断/损坏的图片写进图标库
+  try { $bytes = [Convert]::FromBase64String($b64) } catch { return $false }
+  if ($bytes.Length -lt 16) { return $false }
+  if ($media -match 'svg') {
+    $txt = [Text.Encoding]::UTF8.GetString($bytes)
+    return ($txt -match '(?is)<svg[\s>]' -and $txt -match '(?is)</svg>')
+  }
+  # 位图看魔数
+  if ($bytes.Length -lt 4) { return $false }
+  $b0 = $bytes[0]; $b1 = $bytes[1]; $b2 = $bytes[2]; $b3 = $bytes[3]
+  if ($b0 -eq 0x89 -and $b1 -eq 0x50 -and $b2 -eq 0x4E -and $b3 -eq 0x47) { return $true }   # PNG
+  if ($b0 -eq 0xFF -and $b1 -eq 0xD8) { return $true }                                        # JPEG
+  if ($b0 -eq 0x47 -and $b1 -eq 0x49 -and $b2 -eq 0x46) { return $true }                     # GIF
+  if ($b0 -eq 0x00 -and $b1 -eq 0x00 -and $b2 -eq 0x01 -and $b3 -eq 0x00) { return $true }   # ICO
+  if ($b0 -eq 0x52 -and $b1 -eq 0x49 -and $b2 -eq 0x46 -and $b3 -eq 0x46) { return $true }   # RIFF/WEBP
+  return $false
+}
+
+function Normalize-DataUri([string]$u) {
+  # 有些站点把图标直接内联成 data: URI（SteamDB、部分文档站）。
+  # 我们要的产物本身就是 data URI，所以直接归一化收下，别丢给 curl（curl 不认 data: 协议）
+  $u = $u.Trim()
+  if ($u -notmatch '^data:image/') { return $null }
+  $parts = $u -split ',', 2
+  if ($parts.Count -lt 2) { return $null }
+  $head = $parts[0]; $body = $parts[1]
+  $media = ($head -split ';')[0]
+  if ($media -eq 'data:image/svg') { $media = 'data:image/svg+xml' }
+  if ($head -match ';base64') {
+    $b64 = ($body -replace '\s', '')
+    if ($b64 -notmatch '^[A-Za-z0-9+/=]+$') { return $null }
+    return "$media;base64,$b64"
+  }
+  # 非 base64（常见是 URL 编码的 SVG）：解开再转 base64
+  try {
+    $raw = [Uri]::UnescapeDataString($body)
+    $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($raw))
+  } catch { return $null }
+  return "$media;base64,$b64"
 }
 
 function Get-Mime([string]$path) {
@@ -246,10 +296,27 @@ foreach ($h in $todo) {
     $html = Invoke-CurlGet ("https://" + $h + "/")
     if ($html) { $iconUrl = Find-IconUrl $html ("https://" + $h + "/") }
 
-    # b) 退回 /favicon.ico
-    if (-not $iconUrl) { $iconUrl = "https://$h/favicon.ico" }
+    # a2) 站点把图标内联成 data: URI → 直接收下（curl 不支持 data: 协议）
+    $inline = $null
+    if ($iconUrl -and $iconUrl -match '^\s*data:image/') {
+      $inline = Normalize-DataUri $iconUrl
+      $iconUrl = $null
+    }
 
-    if (Invoke-CurlFile $iconUrl $tmpFile) {
+    # b) 退回 /favicon.ico
+    if (-not $iconUrl -and -not $inline) { $iconUrl = "https://$h/favicon.ico" }
+
+    if ($inline) {
+      $b64 = $inline.Substring($inline.IndexOf('base64,') + 7)
+      if ($b64.Length -le $MaxBase64 -and $b64 -match '^[A-Za-z0-9+/=]+$') {
+        $media = $inline.Substring(0, $inline.IndexOf(';'))
+        $found += ('  "' + $h + '": "' + $media + ';base64,' + $b64 + '",')
+        Write-Host ("   OK   {0}  (内联 {1}, {2} KB)" -f $h, $media, [Math]::Round($b64.Length / 1024, 1))
+        $ok = $true
+      } else {
+        $skip += "$h  —— 内联图标太大或格式异常（base64 $($b64.Length)）"
+      }
+    } elseif (Invoke-CurlFile $iconUrl $tmpFile) {
       $mime = Get-Mime $tmpFile
       if ($mime) {
         $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($tmpFile))
@@ -347,6 +414,9 @@ if ($found.Count -eq 0) {
 
   $newKeys = Get-Keys $imgPath '"([^"]+)"\s*:\s*"data:image'
   Write-Host ("   新增 {0} 条，icons-img.js 现有 {1} 条" -f $found.Count, $newKeys.Count) -ForegroundColor Green
+
+  # 校验全过，备份就没用了，删掉免得目录里留垃圾
+  if (Test-Path ($imgPath + '.bak')) { Remove-Item ($imgPath + '.bak') -Force }
 }
 
 # ------------------------------------------------------------------ 汇总
