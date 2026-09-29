@@ -1,0 +1,31 @@
+# 编辑器统一配置。VS Code / JetBrains 等会自动读取。
+# 关键一条：*.ps1 必须是 utf-8-bom。
+#
+# 为什么：Windows PowerShell 5.1 读取"无 BOM 的 UTF-8"时会按 GBK 解码，
+# 脚本里的中文注释和字符串就变成乱码，轻则输出乱字，重则报一堆
+# "无法识别的 token" 的假语法错误（我在这上面栽过两次）。
+# 注意：脚本内部无法自救——BOM 缺失时 PowerShell 在**解析阶段**就失败了，
+# 根本执行不到任何代码，所以只能靠编辑器在保存时写对编码。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.ps1]
+charset = utf-8-bom
+
+[*.md]
+# Markdown 行尾两个空格是"换行"，不能被自动去掉
+trim_trailing_whitespace = false
+
+[*.js]
+indent_size = 2
+
+[manifest.webmanifest]
+indent_size = 2

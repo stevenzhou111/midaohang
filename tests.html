@@ -41,9 +41,19 @@
   新增了链接/图标后请回来跑一遍：<code>node -e "…"</code> 不用，直接在浏览器打开本页即可。
 </footer>
 
-<script src="data.js"></script>
-<script src="icons.js"></script>
-<script src="icons-img.js"></script>
+<script>
+  /* 自检必须看"当前文件"，不能被浏览器缓存骗了：配置和图标库一旦改动，
+     而自检页读到的是旧缓存，报出来的"没问题"就是假的。
+     所以这里统一带一个时间戳绕开缓存（只影响本页取数，不改线上任何文件）。 */
+  (function () {
+    var t = Date.now();
+    ["data.js", "icons.js", "icons-img.js"].forEach(function (f) {
+      var s = document.createElement("script");
+      s.src = f + "?cb=" + t;
+      document.write('<script src="' + s.src + '"><\/script>');
+    });
+  })();
+</script>
 <script>
 (function () {
   "use strict";
@@ -57,6 +67,72 @@
 
   const norm = (h) => String(h || "").replace(/^www\./, "").toLowerCase();
   const hostOf = (u) => { try { return new URL(u).hostname; } catch (e) { return ""; } };
+
+  /* ───────────────── 0. 纯函数模块自检 ─────────────────
+     前面那些检查是"独立重写一遍规则"（故意不信任 app.js）；
+     这一组相反：直接 import 线上真正在跑的三个模块，测它们的真实行为。
+     这也是拆模块的意义 —— 以前 app.js 是个 IIFE，这里什么都测不到。 */
+  const GM = "纯函数模块";
+  const cb = Date.now();
+  pending.push(
+    Promise.all([
+      import("./js/text.js?cb=" + cb),
+      import("./js/config.js?cb=" + cb),
+      import("./js/icons-index.js?cb=" + cb),
+    ]).then(([text, config, icons]) => {
+      const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+      /* —— text.js —— */
+      ok(GM, "text.js 可被独立 import（这是拆模块的核心目的）");
+      if (!eq(text.tokenize("  GitHub  版本 "), ["github", "版本"])) bad(GM, "tokenize 分词不对", text.tokenize("  GitHub  版本 ").join("|"));
+      if (!eq(text.tokenize("　　"), [])) bad(GM, "tokenize 对纯空白应返回空数组");
+      if (text.foldText("ＧＩＴＨＵＢ") !== "github") bad(GM, "foldText 没有把全角归一化成半角", text.foldText("ＧＩＴＨＵＢ"));
+      if (text.subseqPenalty("github", "zzz") !== -1) bad(GM, "subseqPenalty 不匹配时应返回 -1");
+      if (text.subseqPenalty("github", "gthb") < 0) bad(GM, "subseqPenalty 子序列应能匹配");
+
+      const hay = text.foldText ? {
+        name: "github", py: "gh", pyFull: "github", desc: "code", url: "https://github.com",
+        cat: "常用", catPy: "cy", catPyFull: "changyong",
+      } : null;
+      const sName = text.scoreToken(hay, "github");
+      const sCat = text.scoreToken(hay, "changyong");
+      const sMiss = text.scoreToken(hay, "zzzz");
+      if (!(sName > sCat)) bad(GM, "打分权重错位：命中站点名应高于命中分类", sName + " vs " + sCat);
+      if (sMiss !== -1) bad(GM, "不命中时应返回 -1", String(sMiss));
+
+      /* —— config.js —— */
+      const dirty = config.validateConfig({
+        siteName: "x",
+        categories: [
+          { name: "A", links: [{ name: "ok", url: "https://a.com" }, { name: "坏协议", url: "javascript:alert(1)" }, { url: "https://b.com" }] },
+          "不是对象",
+        ],
+      }, null);
+      if (dirty.fatal.length) bad(GM, "脏配置不该判为致命错误", dirty.fatal.join(" / "));
+      if (dirty.categories.length !== 1 || dirty.categories[0].links.length !== 1) {
+        bad(GM, "validateConfig 没能救下合法条目", JSON.stringify(dirty.categories));
+      } else ok(GM, "validateConfig 挡掉 javascript: 协议与缺 name/url 的条目（剩 1 条合法）");
+
+      const s = config.normalizeSettings({ recentCount: 1.5, showRecent: "yes", linkOrder: "乱写", faviconProxy: 42 });
+      if (s.recentCount !== 1) bad(GM, "recentCount 应夹逼成整数 1", String(s.recentCount));
+      if (s.showRecent !== true) bad(GM, 'showRecent:"yes" 应归一化为 true', String(s.showRecent));
+      if (s.linkOrder !== "config") bad(GM, "linkOrder 非法值应回落 config", s.linkOrder);
+      if (s.faviconProxy !== "") bad(GM, "faviconProxy 非字符串应归一为空串", String(s.faviconProxy));
+      if (s.recentCount < 0 || s.recentCount > 50) bad(GM, "recentCount 未夹逼到 0~50");
+
+      if (config.safeUrl("javascript:alert(1)") !== "") bad(GM, "safeUrl 竟然放行了 javascript:");
+      if (config.safeUrl("https://ok.com") !== "https://ok.com") bad(GM, "safeUrl 误伤了正常 https 链接");
+
+      /* —— icons-index.js —— */
+      const idx = icons.buildIconIndex({ "a.com": "<svg/>" }, { "b.com": "data:image/png;base64,AA" }, { "new-a.com": "a.com" });
+      const find = icons.createLocalIconLookup(idx);
+      if (find("www.a.com") !== "<svg/>") bad(GM, "图标索引：www. 前缀兼容失效");
+      if (find("b.com") !== "data:image/png;base64,AA") bad(GM, "图标索引：位图查不到");
+      if (find("new-a.com") !== "<svg/>") bad(GM, "图标索引：iconAlias 没接上");
+      if (find("nope.com") !== "") bad(GM, "图标索引：未命中时应返回空串");
+      ok(GM, "icons-index.js：www 兼容 / iconAlias / 未命中 均符合预期");
+    }).catch((e) => bad(GM, "模块 import 失败", e.message))
+  );
 
   /* ───────────────── 1. data.js 结构 ───────────────── */
   const G = "配置 data.js";

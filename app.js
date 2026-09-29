@@ -1,3 +1,22 @@
+/* app.js —— 界面与交互（DOM 壳）
+   ------------------------------------------------------------------
+   架构边界（有意为之，不要随便合）：
+     js/text.js        搜索的纯文本处理：无 DOM，可在 Node 里断言
+     js/config.js      配置校验与归一化：无 DOM
+     js/icons-index.js 本地图标库索引：无 DOM
+     app.js（本文件）  DOM 渲染与交互：需要 panels/entries/iconTargets 等运行时状态，
+                       依赖密集，因此**保持单文件**而不是硬拆。
+   什么时候再拆：出现第二个维护者，或开始写 app.js 的单元测试时，
+   把"排序"、"建议下拉"这类自成一块的 DOM 逻辑各抽一个模块，用参数显式传依赖。
+   现在拆的收益抵不上回归风险。
+
+   拆出来的三个纯模块是 ES Module（app.js 也随之变成 type="module"），
+   浏览器原生支持同源模块，**不需要任何构建步骤**，Pages 上直接可用。 */
+
+import { foldText, tokenize, subseqPenalty, scoreToken } from "./js/text.js";
+import { validateConfig, normalizeSettings, safeUrl } from "./js/config.js";
+import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
+
 (function () {
   "use strict";
 
@@ -258,82 +277,8 @@
     content.appendChild(panel);
   }
 
-  const SAFE_URL = /^(https?:\/\/)/i;
-
-  /** 只放行 http(s) 链接。data.js 里的条目在 validateConfig 里已经过这关，
-      这里再兜一次是因为「常用站点」是从 localStorage 读出来的——那里没有校验。 */
-  function safeUrl(u) {
-    const s = String(u == null ? "" : u).trim();
-    return SAFE_URL.test(s) ? s : "";
-  }
-
-  function validateConfig(site) {
-    const fatal = [];
-    const issues = [];
-
-    if (bootError) {
-      fatal.push(
-        (bootError.file || "data.js") +
-          " 第 " +
-          bootError.line +
-          " 行第 " +
-          bootError.col +
-          " 列\n" +
-          bootError.message
-      );
-      return { fatal, issues, categories: [] };
-    }
-
-    if (!site || typeof site !== "object") {
-      fatal.push("data.js 没有定义 window.SITE 对象");
-      return { fatal, issues, categories: [] };
-    }
-    if (!Array.isArray(site.categories)) {
-      fatal.push("window.SITE.categories 必须是一个数组，当前是 " + typeof site.categories);
-      return { fatal, issues, categories: [] };
-    }
-
-    const categories = [];
-    site.categories.forEach((cat, ci) => {
-      if (!cat || typeof cat !== "object") {
-        issues.push("第 " + (ci + 1) + " 个分类不是对象，已跳过");
-        return;
-      }
-      const name = cat.name || "未命名分类 " + (ci + 1);
-      if (!cat.name) issues.push("第 " + (ci + 1) + " 个分类缺少 name，已用默认名代替");
-
-      const rawLinks = Array.isArray(cat.links) ? cat.links : [];
-      if (!Array.isArray(cat.links)) issues.push("分类「" + name + "」的 links 不是数组");
-
-      const links = [];
-      rawLinks.forEach((link, li) => {
-        if (!link || typeof link !== "object") {
-          issues.push("分类「" + name + "」第 " + (li + 1) + " 个链接不是对象，已跳过");
-          return;
-        }
-        if (!link.name) {
-          issues.push("分类「" + name + "」第 " + (li + 1) + " 个链接缺少 name，已跳过");
-          return;
-        }
-        if (!link.url) {
-          issues.push("链接「" + link.name + "」缺少 url，已跳过");
-          return;
-        }
-        if (!safeUrl(link.url)) {
-          issues.push("链接「" + link.name + "」的 url 必须以 http:// 或 https:// 开头，已跳过");
-          return;
-        }
-        links.push(link);
-      });
-
-      categories.push(Object.assign({}, cat, { name: name, links: links }));
-    });
-
-    return { fatal: fatal, issues: issues, categories: categories };
-  }
-
   const SITE = window.SITE;
-  const validation = validateConfig(SITE);
+  const validation = validateConfig(SITE, bootError);
   if (validation.fatal.length) {
     buildErrorPanel("配置文件出错了", validation.fatal, "error");
     return;
@@ -350,14 +295,8 @@
     SITE.settings || {}
   );
 
-  /* settings 也要防脏值：recentCount 传 1.5 / -1 / "8" 都会让 slice() 出乎意料 */
-  (function normalizeSettings() {
-    const n = +SETTINGS.recentCount;
-    SETTINGS.recentCount = Number.isFinite(n) ? Math.max(0, Math.min(50, Math.floor(n))) : 8;
-    SETTINGS.showRecent = SETTINGS.showRecent !== false;
-    SETTINGS.linkOrder = SETTINGS.linkOrder === "name" ? "name" : "config";
-    SETTINGS.faviconProxy = typeof SETTINGS.faviconProxy === "string" ? SETTINGS.faviconProxy.trim() : "";
-  })();
+  /* settings 也要防脏值（实现见 js/config.js 的 normalizeSettings） */
+  normalizeSettings(SETTINGS);
   const CATEGORIES = validation.categories;
 
   /* ───────────────────────── 页头 ───────────────────────── */
@@ -462,39 +401,15 @@
   const REMOTE_ICON_BUDGET = 24;
   let remoteAttempts = 0; // 已放行的数量（取源时计数，不是失败时）
 
-  /* 本地图标库：icons.js（品牌 SVG）+ icons-img.js（抓取的真实 favicon data URI）
-     建索引时兼容有无 www. 两种写法，SVG 与位图共用同一套查询。
+  /* 本地图标库：icons.js（品牌 SVG）+ icons-img.js（抓取的真实 favicon data URI）。
+     索引的构建与查询在 js/icons-index.js（纯函数、可单测）；
+     这里只负责"什么时候建"和"位图库异步到货后重建"。
      icons-img.js 是异步加载的（150KB，不能挡首屏），所以索引要能重建。 */
-  const bareHost = (h) => String(h == null ? "" : h).replace(/^www\./, "");
-
-  function buildIconIndex() {
-    const idx = Object.create(null);
-    [window.ICONS || {}, window.ICONS_IMG || {}].forEach((src) => {
-      Object.keys(src).forEach((key) => {
-        const bare = bareHost(key);
-        idx[key] = src[key];
-        if (!idx[bare]) idx[bare] = src[key];
-        if (!idx["www." + bare]) idx["www." + bare] = src[key];
-      });
-    });
-
-    /* iconAlias：把新域名接回图标库里已有的老域名。
-       图标是按域名索引的，链接地址一改（比如 kimi.moonshot.cn → www.kimi.com）
-       图标就掉了，在 data.js 里写一行 "新域名": "老域名" 即可，不用重新抓图。 */
-    const alias = (window.SITE && window.SITE.iconAlias) || {};
-    Object.keys(alias).forEach((host) => {
-      const to = bareHost(host);
-      const from = bareHost(alias[host]);
-      if (!to || !from || idx[to]) return; // 已经有自己的图标就别覆盖
-      if (idx[from]) {
-        idx[to] = idx[from];
-        idx["www." + to] = idx[from];
-      }
-    });
-    return idx;
+  function makeIconIndex() {
+    return buildIconIndex(window.ICONS, window.ICONS_IMG, (window.SITE && window.SITE.iconAlias) || {});
   }
 
-  let LOCAL_ICONS = buildIconIndex();
+  let localIconFor = createLocalIconLookup(makeIconIndex());
 
   /* 位图图标库（icons-img.js）还没到时，先用首字母顶着：
      这期间不去试远程兜底，否则会把"我们本来就有"的图标又白发几十个请求出去。 */
@@ -502,11 +417,6 @@
 
   /* 所有已经建过图标的挂载点：位图库到货后要挨个补图标 */
   const iconTargets = [];
-
-  function localIconFor(host) {
-    if (!host) return "";
-    return LOCAL_ICONS[host] || LOCAL_ICONS[host.replace(/^www\./, "")] || LOCAL_ICONS["www." + host] || "";
-  }
 
   function hostOf(url) {
     try {
@@ -777,7 +687,7 @@
   function refreshLocalIcons() {
     if (!window.ICONS_IMG) return;
     bitmapsPending = false;
-    LOCAL_ICONS = buildIconIndex();
+    localIconFor = createLocalIconLookup(makeIconIndex());
 
     /* 逐个补：已经有 SVG 或已经有 <img> 的不动，只救还空着的 */
     iconTargets.slice().forEach((t) => {
@@ -1038,7 +948,7 @@
     const sideItem = buildSideItem(id, category.icon || "📁", category.name, links.length);
     sideNav.appendChild(sideItem);
 
-    panels.push({ panel: panel, sideItem: sideItem, name: category.name });
+    panels.push({ panel: panel, sideItem: sideItem, name: category.name, head: head });
   });
 
   initSorting();
@@ -1349,65 +1259,11 @@
     document.addEventListener("dragend", endDrag);
   }
 
-  /* ───────────────────────── 搜索：分词 / 打分 / 高亮 ───────────────────────── */
+  /* ───────────────────────── 搜索：检索字段组装 / 排序 / 高亮 ─────────────────────────
+     foldText / tokenize / subseqPenalty / scoreToken 已抽到 js/text.js（纯函数、可单测），
+     这里只保留需要 DOM 的部分。 */
 
-  /* NFKC 归一化：全角字母数字（ＡＢＣ、１２３）、部分输入法打出的兼容字符
-     都能被归一化成半角，搜得到；不做的话中文用户复制到全角字符就是零结果 */
-  function foldText(s) {
-    try {
-      return String(s == null ? "" : s).normalize("NFKC").toLowerCase();
-    } catch (e) {
-      return String(s == null ? "" : s).toLowerCase();
-    }
-  }
-
-  function tokenize(query) {
-    return foldText(query).trim().split(/\s+/).filter(Boolean);
-  }
-
-  /** 子序列匹配：返回惩罚值（越小越好），-1 表示不匹配 */
-  function subseqPenalty(hay, token) {
-    let cursor = 0;
-    let first = -1;
-    let last = -1;
-    for (let i = 0; i < token.length; i++) {
-      const idx = hay.indexOf(token[i], cursor);
-      if (idx < 0) return -1;
-      if (first < 0) first = idx;
-      last = idx;
-      cursor = idx + 1;
-    }
-    return first * 2 + (last - first + 1 - token.length) * 2;
-  }
-
-  function scoreToken(hay, token) {
-    let best = -1;
-    const substr = (h, base, startBonus) => {
-      if (!h) return -1;
-      const i = h.indexOf(token);
-      if (i < 0) return -1;
-      return base + (i === 0 ? startBonus : 0) - i * 3;
-    };
-
-    best = Math.max(best, substr(hay.name, 1000, 300));
-    best = Math.max(best, substr(hay.py, 960, 280));
-    best = Math.max(best, substr(hay.pyFull, 940, 260));
-    best = Math.max(best, substr(hay.desc, 700, 120));
-    best = Math.max(best, substr(hay.url, 640, 100));
-
-    /* 命中分类名 / 分类拼音：整类的链接都能被搜出来，但分值低于直接命中站点 */
-    best = Math.max(best, substr(hay.cat, 340, 80));
-    best = Math.max(best, substr(hay.catPy, 320, 70));
-    best = Math.max(best, substr(hay.catPyFull, 300, 60));
-
-    const penalty = subseqPenalty(hay.name, token);
-    if (penalty >= 0) best = Math.max(best, 420 - penalty);
-    const catPenalty = subseqPenalty(hay.catPyFull, token);
-    if (catPenalty >= 0) best = Math.max(best, 260 - catPenalty);
-
-    return best;
-  }
-
+  /* 一条链接对整组 token 的总分：任一 token 不匹配就整条不匹配 */
   function scoreEntry(entry, tokens) {
     let total = 0;
     for (let i = 0; i < tokens.length; i++) {
@@ -1648,6 +1504,20 @@
     empty.appendChild(engineButton('用 ' + currentEngine().name + ' 搜索 “' + query + '”', query));
   }
 
+  /** 搜索时折叠面板会被 CSS 强制展开，aria-expanded 必须跟着改，
+      否则读屏用户听到"已折叠"却看到内容。清空搜索时也要改回来。 */
+  function syncPanelAria() {
+    const searching = content.classList.contains("is-searching");
+    panels.forEach((p) => {
+      const h = p.head || (p.panel && p.panel.querySelector(".panel-head"));
+      if (!h) return;
+      h.setAttribute(
+        "aria-expanded",
+        searching ? "true" : (p.panel.classList.contains("is-collapsed") ? "false" : "true")
+      );
+    });
+  }
+
   function applyFilter() {
     const query = input.value.trim();
     const tokens = tokenize(query);
@@ -1665,6 +1535,7 @@
       hint.hidden = true;
       empty.hidden = true;
       lastRanked = [];
+      syncPanelAria(); // 清空搜索：把 aria-expanded 还原成真实的折叠状态
       hideSuggestions();
       renderRecent();
       updateSpy();
@@ -1700,6 +1571,8 @@
 
     if (count > 0) empty.hidden = true;
     else renderEmpty(query);
+
+    syncPanelAria();
 
     if (document.activeElement === input) renderSuggestions(query, lastRanked.slice(0, 7));
     else hideSuggestions();

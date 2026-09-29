@@ -66,13 +66,18 @@
 | --- | --- |
 | `index.html` | 页面骨架（Hero / 侧边栏 / 内容区），含配置错误捕获脚本 |
 | `styles.css` | 全部样式、主题与配色变量、视图切换、拖拽状态、响应式断点 |
-| `app.js` | 渲染、搜索与建议下拉、折叠、滚动定位、记录、主题与配色、视图切换、拖拽排序、图标加载、Service Worker 注册 |
+| `app.js` | **DOM 壳**（ES Module）：渲染、搜索 UI、折叠、滚动定位、主题与配色、拖拽排序、图标挂载、SW 注册 |
+| `js/text.js` | 搜索的纯文本处理：分词 / 归一化 / 打分（无 DOM，可在 Node 里断言） |
+| `js/config.js` | 配置校验与归一化（无 DOM） |
+| `js/icons-index.js` | 本地图标库索引：www 兼容 + `iconAlias`（无 DOM） |
 | `data.js` | **你的内容配置**（改这个就行） |
 | `icons.js` | **本地图标库（SVG）**：域名 → 品牌 logo（新增站点想带图标就加一行） |
 | `icons-img.js` | **本地图标库（位图）**：域名 → 抓取的真实 favicon data URI。**异步加载**（150KB，不挡首屏，见《性能》一节） |
 | `get-icons.ps1` | 一键补图标脚本：抓 data.js 里缺图标的站点（PowerShell，零依赖） |
 | `check-links.ps1` | 死链检测脚本：并发扫全部链接的 HTTP 状态，分类报告 |
-| `tests.html` | **自检页**：校验 data.js / 图标库 / PWA / HTML 引用是否自洽（改完配置打开看一眼） |
+| `tests.html` | **自检页**：校验 data.js / 图标库 / 纯函数模块 / PWA / HTML 引用是否自洽 |
+| `.github/workflows/check.yml` | **CI**：push/PR 跑语法检查 + 28 条纯函数断言，部署后再回读线上自检页 |
+| `.editorconfig` | 编辑器统一配置：`.ps1` 强制 UTF-8 **with BOM**（见文末《脚本编码》） |
 | `manifest.webmanifest` | PWA 清单：安装到桌面 / 主屏时的名字、图标、窗口样式 |
 | `sw.js` | Service Worker：离线兜底（网络优先，改配置立刻生效） |
 | `icon-192.png` `icon-512.png` `icon-maskable-512.png` `apple-touch-icon.png` | PWA / 主屏图标（渐变底 + 白色字标，与 favicon 同款） |
@@ -80,6 +85,33 @@
 | `_headers` | 线上安全头 + 缓存策略（`nosniff`、`data.js` 永远回源，改完即生效） |
 | `404.html` | Cloudflare Pages 自动使用的错误页 |
 | `favicon-worker/` | 图标代理 Worker（可选，本地图标没覆盖的站点才用得上） |
+
+## 架构：为什么是现在这个样子
+
+```
+index.html ──┬─ data.js          内容配置（唯一事实来源）
+             ├─ icons.js         品牌 SVG 图标库
+             ├─ icons-img.js     真实 favicon 位图库（异步）
+             └─ app.js (module) ─┬─ js/text.js         纯函数：分词 / 归一化 / 打分
+                                ├─ js/config.js       纯函数：配置校验 / 归一化
+                                └─ js/icons-index.js  纯函数：图标索引 / iconAlias
+```
+
+三个刻意的决定，改动前先想清楚：
+
+**1. 零构建，零依赖。** 没有 npm、没有打包器，Pages 直接把仓库原样发布。
+代价是所有优化都得手写；换来的是**部署不可能失败**（没有构建，就没有"本地好好的、
+线上构建挂了"这种最耗人的故障），也没有供应链风险。
+
+**2. 纯函数与 DOM 分开，但不拆到底。** `js/` 下三个模块不碰 DOM，因此可以在 Node 里
+直接 `import` 做断言（CI 的 28 条就是它们）。而 `app.js` 里的排序、建议下拉、图标挂载
+依赖 `panels` / `entries` / `iconTargets` 这些运行时状态，**依赖密集，强行拆开要靠
+参数层层传递，收益抵不上回归风险** —— 所以 DOM 壳刻意保持单文件。
+什么时候再拆：出现第二个维护者，或开始给 app.js 写单元测试时。
+
+**3. 用户可见的选择存 localStorage，不写回配置。** 主题、配色、视图、排序、折叠状态、
+常用站点都只存在访问者浏览器里。`data.js` 只描述"内容长什么样"，不描述"谁怎么看"。
+好处是配置永远干净、可以随时 diff；代价是换设备要重排一次（README 里有说明）。
 
 ## 修改内容
 
@@ -159,8 +191,9 @@ window.SITE = {
   脚本本身打 `async` **不挡首屏渲染**；`app.js` 的 `watchBitmapLibrary()` 监听它执行完，
   重建图标索引并给还停在首字母的图标补位（`refreshLocalIcons()`）。
   顺带的好处：这期间**不去试远程兜底**，省掉几十个"我们本来就有"的图标请求。
-  实测：首屏 0–300ms 内 99 个 SVG 图标已就位、0 个远程请求；位图库执行后位图补齐到 85 个，
-  只剩 15 个真·没有本地图标的境外站。
+  实测（注入 700ms 延迟模拟慢网络）：首屏 0–300ms 内 99 个 SVG 图标已就位、**0 个远程请求**；
+  位图库执行后位图补齐，只剩 5 个真·没有本地图标的站点（Yahoo Finance / WIRED / Engadget /
+  Investing / Grok，simple-icons 与本机网络都拿不到）。
 - **不要把 base64 换成二进制**：br 对 base64 的压缩率约 42%，而 PNG 本身已压缩，
   换裸二进制后 br 几乎压不动（~196KB）——**现在的 base64 + br 是最优解**。
 - **首屏 0 个外部图片请求**：命中的图标全部内联，离线也秒出
@@ -196,9 +229,12 @@ Cloudflare 控制台 → **Workers 和 Pages** → **创建** → **Pages** → 
 
 > **注意**：方式 A 的输出目录是 `/`，等于把仓库里的 README、`LICENSE`、`*.ps1`、
 > `favicon-worker/` 也发布出去（都是明文、无密钥，属无害但多余）。
-> 只想发运行期文件的话，在 Pages 构建设置里填：
-> **构建命令** `mkdir -p _site && cp index.html styles.css app.js data.js icons.js icons-img.js manifest.webmanifest sw.js icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png _headers 404.html robots.txt _site/`
-> **输出目录** `_site`（Linux 构建环境，和 `deploy.ps1` 打包的是同一批 15 个文件）。
+> 只想发运行期文件：在 Pages 构建设置里填
+> **构建命令** `npx --yes wrangler@latest pages deploy <本地生成的 _site> --project-name personal-nav`
+> 是不行的（构建机上没有你的仓库文件）；正确做法是**本地先跑一次**
+> `deploy.ps1 -PackOnly` 生成 `_site\`，再把 `_site\` 作为独立目录上传（方式 B）。
+> `deploy.ps1` 的文件清单是**从 `index.html` + `app.js` 的 import + `manifest` + `sw.js`
+> 自动推导**的（当前 18 个文件），新增资源不用再手工维护清单。
 
 ## 自己加了链接，图标自动来（get-icons.ps1）
 
@@ -364,6 +400,17 @@ routes = [{ pattern = "favicon.yourdomain.com/*", zone_name = "yourdomain.com" }
 
 > 这个站没有构建步骤，所以校验只能自己加。`tests.html` 就是最轻的一层：
 > 纯静态，Pages 上直接能开，不需要 Node、不需要装任何东西。
+>
+> 它还**直接 import `js/` 下那三个纯函数模块**做断言（"纯函数模块"一组）——
+> 测的是线上真正在跑的实现，而不是重写一遍规则。
+>
+> **CI**（`.github/workflows/check.yml`）在 push / PR 时做三件事：
+> 1. `node --check` 扫所有 `.js`；
+> 2. 跑 28 条纯函数断言 + `data.js` 静态一致性（`py` 撞车 / 重复 url / 非 https / 别名孤儿键）；
+> 3. 部署完成后回读线上 <https://midaohang.pages.dev/tests> 的标题，`fail≠0` 就把这次发布标红。
+>
+> 第 2 条与自检页里的 `data.js` 检查同源，作用是"**部署的是仓库内容，
+> 没人点自检页时 CI 也会看**"。
 
 ## PWA：安装到桌面 / 主屏
 
@@ -415,9 +462,15 @@ powershell -ExecutionPolicy Bypass -File .\check-links.ps1
   **文件名 / 行号 / 列号 / 错误信息**，修好刷新即可。
 - **顶部出现黄框"配置有 N 处问题"**：缺 `name`、`url` 不是 `http(s)://` 之类的结构问题，
   这些条目已被自动跳过，其余内容照常显示，清单里写明了每一条。
-- **图标显示为首字母**：`icons.js` 里没有这个域名，见上节《给新站点加图标》。
-- **改了图标不生效**：浏览器有缓存，Ctrl/Cmd + F5 强刷。
+- **图标显示为首字母**：`icons.js` / `icons-img.js` 里没有这个域名。三条路：
+  跑一次 `get-icons.ps1` 自动抓；从
+  `https://cdn.jsdelivr.net/npm/simple-icons@15/icons/<品牌名>.svg` 复制一行加进 `icons.js`；
+  如果只是**链接换了新域名**（图标还挂在老域名上），在 `data.js` 加一行 `iconAlias`。
+- **改了图标不生效**：`icons-img.js` 走 stale-while-revalidate，**下一次打开**就是新的；
+  想立刻看到就 Ctrl/Cmd + F5。`icons.js` 有 1 小时缓存，同理。
 - **拼音搜不到**：链接没填 `py` / `pyFull` 字段，见《修改内容》一节。
+  另外 `py` 要填**这个站点自己的**拼音缩写，填通用后缀（都叫 `wd`）会导致搜一个词
+  命中好几个不相干的站点 —— 自检页和 CI 都会把这种撞车报成失败。
 - **侧边栏没出现**：窗口宽度 ≤1000px 时会变成顶部横向胶囊导航，属预期。
 - **点最后一个分类高亮不对**：已修复（滚到底时按最后一个面板判定），若仍异常请强刷。
 - **搜索按 Enter 打开了网页**：有候选时 `Enter` 打开**高亮的那一行**，
@@ -427,15 +480,22 @@ powershell -ExecutionPolicy Bypass -File .\check-links.ps1
 - **搜分类搜不到**：在 `data.js` 的 `categoryAlias` 里给分类加一行别名，
   如 `"设计灵感": "sheji design ui ux"`，之后 `sheji` / `design` 都能搜出整类。
 - **`Ctrl / ⌘ + K` 没反应**：个别浏览器会把这个快捷键占给地址栏，用 `/` 聚焦一样。
-- **改完 `get-icons.ps1` 后中文乱码 / 报语法错**：这个脚本必须保存成
-  **UTF-8 with BOM**（Windows PowerShell 5.1 对无 BOM 文件按 GBK 读），或改用 `pwsh` 运行。
+- **改完 `get-icons.ps1` / `check-links.ps1` 后中文乱码 / 报语法错**：这两个脚本必须保存成
+  **UTF-8 with BOM**（Windows PowerShell 5.1 对无 BOM 文件按 GBK 读，会报一堆假的
+  "无法识别的 token"）。仓库里的 **`.editorconfig` 已经给 `*.ps1` 声明了 `charset = utf-8-bom`**，
+  VS Code / JetBrains 打开时会自动按 BOM 保存。注意：**脚本内部无法自救**——BOM 缺失时
+  PowerShell 在解析阶段就失败了，根本执行不到任何代码。
 - **拖出来的顺序怎么恢复**：内容区顶部提示条里的「重置排序」，
   或在控制台执行
   `Object.keys(localStorage).filter(k => k.indexOf('nav:link-order') === 0 || k === 'nav:panel-order').forEach(k => localStorage.removeItem(k))` 后刷新。
 - **我改了 `data.js`，新分类怎么排到最后去了**：你之前拖拽过，记录里没有这个新名字，
   按设计补在末尾（保证不会被旧排序挤掉）。想要它回到配置里的位置就点「重置排序」。
 - **`check-links.ps1` 报一堆 403 / 429 是死链吗**：不是。那是反爬或限流，站点还活着，
-  脚本把它们归到 `WARN`；只有 `404/410/451` 和连不上才算 `FAIL`。
+  脚本把它们归到 `WARN`；只有 `404/410/451` 和域名解析失败才是 `DEAD`。
+- **`check-links.ps1` 报某个站超时（NET）**：多半是本地网络到不了（境外站）。
+  挂上代理再跑一次复核，只有 `DEAD` 才需要改 `data.js`。
+- **手机上看不到分类胶囊的最后几个**：≤640px 已改成 2~3 列网格，一屏看全；
+  641~1000px 仍是横向滚动（右侧有渐隐提示）。
 - **PWA 装不上 / 安装后内容是旧的**：安装需要 **https 或 localhost**；
   要立刻让 `sw.js` 的改动生效就 Ctrl+F5 或关掉全部标签页重开
   （Service Worker 最多 24 小时才自动检查更新）。

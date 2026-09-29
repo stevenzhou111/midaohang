@@ -45,6 +45,8 @@
 </head>
 <body>
   <a class="skip-link" href="#content">跳到主要内容</a>
+  <a class="skip-link skip-link--2" href="#search-input">跳到搜索框</a>
+  <a class="skip-link skip-link--3" href="#side-nav">跳到分类导航</a>
   <div class="blobs" aria-hidden="true">
     <span class="blob blob-1"></span>
     <span class="blob blob-2"></span>
@@ -94,7 +96,7 @@
     <!-- ─────────── 主体：侧边栏 + 内容 ─────────── -->
     <div class="layout">
       <aside class="sidebar">
-        <nav class="side-nav" id="side-nav" aria-label="分类导航"></nav>
+        <nav class="side-nav" id="side-nav" aria-label="分类导航" tabindex="-1"></nav>
       </aside>
 
       <main class="content" id="content" tabindex="-1">
@@ -133,6 +135,6 @@
        但不挡首屏渲染；到货后 app.js 的 watchBitmapLibrary() 会补图标。 -->
   <link rel="preload" href="icons-img.js" as="script">
   <script src="icons-img.js" id="icons-img-script" async></script>
-  <script src="app.js"></script>
+  <script src="app.js" type="module"></script>
 </body>
 </html>
