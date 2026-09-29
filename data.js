@@ -50,6 +50,14 @@ window.SITE = {
     faviconProxy: "", // 图标代理地址；"" = 直连 Google/DDG。只有部署了 favicon-worker 才填它的地址
   },
 
+  /* 图标别名：链接地址改了、但图标库还挂在老域名上时，在这里接一下（可选）
+     格式："新域名": "图标库里已有的域名"。图标按域名索引，不接就会掉成首字母。 */
+  iconAlias: {
+    "kimi.com": "kimi.moonshot.cn",
+    "v0.app": "v0.dev",
+    "claude.com": "claude.ai",
+  },
+
   /* 分类搜索别名：分类名 → "拼音首字母 完整拼音 英文"（可选）
      加了它，搜 "design" / "sheji" / "sjlg" 都能命中"设计灵感"整类 */
   categoryAlias: {

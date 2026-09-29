@@ -10,6 +10,10 @@
   --hover: rgba(20, 27, 45, 0.055);
   --chip: rgba(99, 102, 241, 0.14);
   --ring: rgba(99, 102, 241, 0.35);
+  /* 焦点环单独一个变量：原来的 --ring 是半透明强调色（0.35 alpha），
+     压在毛玻璃上只有 1.5~2.2:1，键盘用户基本看不到焦点在哪（WCAG 1.4.11 要 3:1）。
+     这里给不透明的靛蓝，浅色底约 6.2:1；深色底在下一段换成浅靛（约 9:1）。 */
+  --focus-ring: #4338ca;
   --accent: #4f46e5;
   --accent-2: #db2777;
   --shadow: 0 8px 24px rgba(24, 32, 56, 0.08);
@@ -28,6 +32,7 @@ html[data-theme="dark"] {
   --hover: rgba(255, 255, 255, 0.07);
   --chip: rgba(129, 140, 248, 0.22);
   --ring: rgba(129, 140, 248, 0.45);
+  --focus-ring: #c7d2fe;
   --accent: #818cf8;
   --accent-2: #f472b6;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
@@ -210,7 +215,14 @@ body {
 .page {
   max-width: 1180px;
   margin: 0 auto;
+  /* iOS 全面屏：刘海/灵动岛在顶部，底部有横条。
+     没有 viewport-fit=cover 时 env() 恒为 0，这里配合 index.html 里的
+     <meta name="viewport" content="... viewport-fit=cover"> 才真正生效。 */
   padding: 36px 20px 58px;
+  padding-top: max(36px, env(safe-area-inset-top, 0px));
+  padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
 }
 
 /* ─────────────── Hero ─────────────── */
@@ -256,6 +268,9 @@ body {
   position: absolute;
   top: 50px;
   right: 0;
+  /* 必须高于 .search-wrap 的 z-index:30，否则站点名一长，
+     搜索框会反过来盖住配色面板 */
+  z-index: 40;
   display: flex;
   gap: 9px;
   padding: 11px 13px;
@@ -282,7 +297,8 @@ body {
 }
 
 .swatch:focus-visible {
-  outline: none;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
   box-shadow: 0 0 0 3px var(--ring);
 }
 
@@ -351,7 +367,8 @@ body {
 }
 
 .icon-btn:focus-visible {
-  outline: none;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
   box-shadow: 0 0 0 3px var(--ring);
 }
 
@@ -379,7 +396,9 @@ body {
 }
 
 .search-box:focus-within {
-  border-color: transparent;
+  /* 之前这里把 border-color 改成 transparent，等于把搜索框唯一的边界线索也删了；
+     聚焦时用高对比的焦点色描边，键盘用户才知道焦点在哪 */
+  border-color: var(--focus-ring);
   box-shadow: 0 0 0 3px var(--ring), var(--shadow-hover), inset 0 1px 0 var(--inset-hi);
   transform: translateY(-1px);
 }
@@ -401,8 +420,7 @@ body {
 }
 
 .search-input::placeholder {
-  color: var(--muted);
-  opacity: 0.85;
+  color: var(--muted); /* 0.85 的 opacity 会把它压到 4.1:1，低于 4.5:1 */
 }
 
 .search-input::-webkit-search-cancel-button {
@@ -443,12 +461,16 @@ body {
 }
 
 .engine:focus-visible {
-  outline: none;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
   box-shadow: 0 0 0 2px var(--ring);
 }
 
 .kbd {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* 等宽字体要带中文回退：.msg-detail 打印的正是中文错误信息，
+     没有中文族时会掉到系统默认字体，字重和行高都对不齐 */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace;
   font-size: 11px;
   padding: 3px 7px;
   border-radius: 6px;
@@ -513,6 +535,7 @@ body {
   position: sticky;
   top: 22px;
   max-height: calc(100vh - 44px);
+  max-height: calc(100dvh - 44px); /* 移动端地址栏收起时 100vh 会算高 */
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -537,6 +560,7 @@ body {
      否则 JS 的 ensureSideItemVisible 在桌面端永远判定"不需要滚" */
   overflow-y: auto;
   max-height: calc(100vh - 140px);
+  max-height: calc(100dvh - 140px);
   scrollbar-width: thin;
 }
 
@@ -577,8 +601,12 @@ body {
   background: linear-gradient(180deg, var(--accent), var(--accent-2));
 }
 
+/* 搜索时"这个分类没有结果"是有意义的信息，不能为了"看起来淡"就压到读不出来。
+   原来的 opacity:0.35 只有 1.6:1 对比度（要求 4.5:1）。
+   改成用 --muted 的浅色 + 斜体：依然一眼能看出"淡"，但读得清。 */
 .side-item.is-dimmed {
-  opacity: 0.35;
+  color: var(--muted);
+  font-style: italic;
 }
 
 .side-emoji {
@@ -598,9 +626,9 @@ body {
 
 .side-count {
   flex: 0 0 auto;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
-  opacity: 0.6;
+  color: var(--muted);
 }
 
 .content {
@@ -631,11 +659,10 @@ body {
 .panel {
   scroll-margin-top: 24px;
   animation: panel-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
-  /* 视口外的面板跳过渲染：整页 21 个面板一次全画出来，滚动时每帧都要重新
-     合成这些背板模糊层，CPU 占用很高。contain-intrinsic-size 给个占位高度，
-     滚动条长度不受影响。 */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 320px;
+  /* 曾经试过 content-visibility: auto + contain-intrinsic-size 跳过视口外渲染，
+     但首屏时未渲染过的面板会按 320px 占位高度参与位置计算，
+     侧栏高亮（读 rect.top + scrollY）和侧栏点击跳转都会算错位置。
+     正确性优先，这里保持全部渲染。真正的首屏优化在 sw.js（图标库 SWR）和搜索防抖。 */
 }
 
 @keyframes panel-in {
@@ -706,7 +733,8 @@ html[data-theme="dark"] .fav.has-img {
 }
 
 .to-top:focus-visible {
-  outline: none;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
   box-shadow: 0 0 0 3px var(--ring);
 }
 
@@ -741,7 +769,8 @@ html[data-theme="dark"] .fav.has-img {
 }
 
 .panel-head:focus-visible {
-  outline: none;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
   box-shadow: 0 0 0 3px var(--ring);
 }
 
@@ -837,7 +866,12 @@ html[data-theme="dark"] .fav.has-img {
   background: var(--hover);
   border-color: var(--border);
   transform: translateY(-2px);
-  outline: none;
+}
+
+/* 卡片是页面上数量最多的可聚焦元素（199 个），焦点环必须看得见 */
+.pill:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .pill.is-hidden {
@@ -1042,6 +1076,7 @@ html[data-view="list"] .pill-arrow {
   left: 0;
   right: 0;
   max-height: min(60vh, 400px);
+  max-height: min(60dvh, 400px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 6px;
@@ -1166,7 +1201,10 @@ mark {
   border-radius: 12px;
   background: var(--hover);
   border: 1px solid var(--border);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* 等宽字体要带中文回退：.msg-detail 打印的正是中文错误信息，
+     没有中文族时会掉到系统默认字体，字重和行高都对不齐 */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace;
   font-size: 12.5px;
   line-height: 1.7;
   color: var(--text);
@@ -1350,5 +1388,76 @@ mark {
 
   * {
     transition-duration: 0.01ms !important;
+  }
+
+  /* JS 里的 scrollTo({behavior:"smooth"}) 由 app.js 的 REDUCED 兜住，
+     这里再把 CSS 侧的滚动行为也按死，双保险 */
+  html {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─────────────── 降级：不支持毛玻璃 / Windows 高对比度 ─────────────── */
+
+/* 旧版 Firefox、低端设备会丢掉 backdrop-filter，只剩半透明底色，
+   面板和背景几乎同色（1.2:1），得给实体底色。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass: #ffffff;
+    --glass-strong: #ffffff;
+    --border: rgba(20, 27, 45, 0.22);
+  }
+  html[data-theme="dark"] {
+    --glass: #161a24;
+    --glass-strong: #1a1e29;
+    --border: rgba(255, 255, 255, 0.28);
+  }
+  .panel,
+  .sidebar,
+  .search-box,
+  .suggestions {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Windows 高对比度模式：浏览器会丢弃 background-image，
+   而 #site-name 是 color:transparent + background-clip:text ——
+   不处理的话站点标题会整个消失。 */
+@media (forced-colors: active) {
+  #site-name {
+    color: CanvasText;
+    background: none;
+    -webkit-text-fill-color: CanvasText;
+  }
+  .panel,
+  .sidebar,
+  .search-box,
+  .suggestions,
+  .to-top,
+  .icon-btn,
+  .engines,
+  .pill,
+  .side-item {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .pill:focus-visible,
+  .panel-head:focus-visible,
+  .icon-btn:focus-visible,
+  .engine:focus-visible,
+  .swatch:focus-visible,
+  .to-top:focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
+  .blobs {
+    display: none; /* 光斑在高对比度下是纯色噪声 */
+  }
+  html[data-theme="dark"] .fav.has-img {
+    background: Canvas;
+    border-color: CanvasText;
   }
 }

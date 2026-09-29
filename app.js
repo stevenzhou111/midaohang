@@ -64,6 +64,11 @@
   /* ───────────────────────── 主题（与配置无关，先初始化） ───────────────────────── */
 
   const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+  /* 系统开了"减弱动效"时，JS 里的平滑滚动也要改成瞬时跳转 —— CSS 的
+     prefers-reduced-motion 块管不到 scrollTo({behavior:"smooth"}) */
+  const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)");
+  /* 触摸端：HTML5 拖拽不可用、也没有物理键盘，提示文案与排序方式都要换一套 */
+  const FINE_POINTER = window.matchMedia("(hover: hover) and (pointer: fine)");
 
   function resolveTheme() {
     const saved = store.get("nav:theme", null);
@@ -81,6 +86,11 @@
     document.documentElement.setAttribute("data-theme", theme);
     themeBtn.innerHTML = theme === "dark" ? SUN_ICON : MOON_ICON;
     themeBtn.title = theme === "dark" ? "切换到浅色" : "切换到深色";
+    /* 只写 title 的话读屏用户永远听到同一句话，不知道当前是深是浅 */
+    themeBtn.setAttribute(
+      "aria-label",
+      theme === "dark" ? "当前深色主题，切换到浅色" : "当前浅色主题，切换到深色"
+    );
   }
 
   themeBtn.addEventListener("click", () => {
@@ -152,10 +162,13 @@
     applyAccent();
   }
 
-  function closePalette() {
+  function closePalette(restoreFocus) {
     if (palettePop.hidden) return;
     palettePop.hidden = true;
     paletteBtn.setAttribute("aria-expanded", "false");
+    /* 弹层一藏，内部元素就失去焦点（会掉回 <body>），
+       键盘用户下一次 Tab 得从文档开头重新走。Esc 关闭时把焦点还回来。 */
+    if (restoreFocus) paletteBtn.focus();
   }
 
   paletteBtn.addEventListener("click", () => {
@@ -394,7 +407,10 @@
     btn.className = "engine";
     btn.dataset.engine = engine.id;
     btn.textContent = engine.name;
-    btn.setAttribute("role", "tab");
+    /* 这是"单选一组"，不是选项卡：页面上没有 tabpanel，用 role="tab" 是错的语义，
+       读屏会播报"选项卡 1/4"并期待左右键切换。用 radiogroup + aria-checked。 */
+    btn.setAttribute("role", "radio");
+    btn.setAttribute("aria-checked", "false");
     btn.addEventListener("click", () => setEngine(engine.id));
     enginesBox.appendChild(btn);
   });
@@ -405,11 +421,23 @@
     enginesBox.querySelectorAll(".engine").forEach((btn) => {
       const active = btn.dataset.engine === id;
       btn.classList.toggle("is-active", active);
-      btn.setAttribute("aria-selected", active ? "true" : "false");
+      btn.setAttribute("aria-checked", active ? "true" : "false");
     });
     if (input.value.trim()) refreshSearch();
   }
   setEngine(engineId);
+
+  /* 单选组的左右键漫游：读屏用户习惯用 ←→ 换选项 */
+  enginesBox.addEventListener("keydown", (ev) => {
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    const list = [].slice.call(enginesBox.querySelectorAll(".engine"));
+    const i = list.indexOf(document.activeElement);
+    if (i < 0) return;
+    ev.preventDefault();
+    const next = list[(i + (ev.key === "ArrowRight" ? 1 : -1) + list.length) % list.length];
+    next.focus();
+    setEngine(next.dataset.engine);
+  });
 
   function searchWeb(query) {
     window.open(currentEngine().base + encodeURIComponent(query), "_blank", "noopener");
@@ -445,6 +473,21 @@
         if (!idx[bare]) idx[bare] = src[key];
         if (!idx["www." + bare]) idx["www." + bare] = src[key];
       });
+    });
+
+    /* iconAlias：把新域名接回图标库里已有的老域名。
+       图标是按域名索引的，链接地址一改（比如 kimi.moonshot.cn → www.kimi.com）
+       图标就掉了，在 data.js 里写一行 "新域名": "老域名" 即可，不用重新抓图。 */
+    const bare = (h) => String(h == null ? "" : h).replace(/^www\./, "");
+    const alias = (window.SITE && window.SITE.iconAlias) || {};
+    Object.keys(alias).forEach((host) => {
+      const to = bare(host);
+      const from = bare(alias[host]);
+      if (!to || !from || idx[to]) return; // 已经有自己的图标就别覆盖
+      if (idx[from]) {
+        idx[to] = idx[from];
+        idx["www." + to] = idx[from];
+      }
     });
     return idx;
   })();
@@ -803,7 +846,8 @@
     a.href = "#" + id;
     a.dataset.target = id;
     a.innerHTML =
-      '<span class="side-emoji"></span><span class="side-name"></span><span class="side-count"></span>';
+      '<span class="side-emoji" aria-hidden="true"></span><span class="side-name"></span>' +
+      '<span class="side-count" aria-hidden="true"></span>';
     a.querySelector(".side-emoji").textContent = icon;
     a.querySelector(".side-name").textContent = name;
     a.querySelector(".side-count").textContent = count;
@@ -813,7 +857,7 @@
       if (!target) return;
       clearSearch();
       const top = target.getBoundingClientRect().top + window.scrollY - offsetForScroll();
-      window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
+      window.scrollTo({ top: Math.max(top, 0), behavior: REDUCED.matches ? "auto" : "smooth" });
       setActiveSide(id);
       try {
         history.replaceState(null, "", "#" + id);
@@ -884,7 +928,7 @@
     head.className = "panel-head";
     head.setAttribute("aria-expanded", "true");
     head.innerHTML =
-      '<span class="cat-emoji"></span>' +
+      '<span class="cat-emoji" aria-hidden="true"></span>' +
       '<span class="panel-title"></span>' +
       '<span class="rule" aria-hidden="true"></span>' +
       '<span class="count">' + links.length + "</span>" +
@@ -991,7 +1035,7 @@
   sortTip.className = "sort-tip";
   sortTip.innerHTML = '<span></span><button type="button">重置排序</button>';
   sortTip.querySelector("span").textContent =
-    "自定义排序已启用：拖动分类标题可换分类顺序，拖动卡片可换链接顺序；改动只存在本机浏览器里，配置文件不受影响。";
+    "自定义排序已启用：拖动分类标题可换分类顺序，拖动卡片可换链接顺序；键盘可用 Alt + ↑ / ↓ 移动；改动只存在本机浏览器里，配置文件不受影响。";
   content.insertBefore(sortTip, content.firstChild);
 
   function hasCustomOrder() {
@@ -1387,6 +1431,7 @@
     suggestions.hidden = true;
     suggestions.innerHTML = "";
     input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant"); // 读屏靠它播报当前高亮项
     suggestionRows = [];
     activeIndex = -1;
   }
@@ -1399,7 +1444,12 @@
       const on = i === next;
       row.classList.toggle("is-active", on);
       row.setAttribute("aria-selected", on ? "true" : "false");
-      if (on) row.scrollIntoView({ block: "nearest" });
+      if (on) {
+        /* combobox 模式下焦点始终留在 input 上，必须用 aria-activedescendant
+           告诉读屏"当前选中的是哪一行"，否则按 ↑↓ 完全没有反馈 */
+        input.setAttribute("aria-activedescendant", row.id);
+        if (!REDUCED.matches) row.scrollIntoView({ block: "nearest" });
+      }
     });
     activeIndex = next;
   }
@@ -1408,6 +1458,7 @@
     const row = document.createElement("div");
     row.className = "suggestion";
     row.setAttribute("role", "option");
+    row.id = "sug-" + index; // 供 input 的 aria-activedescendant 指向
     row.dataset.index = String(index);
 
     row.appendChild(createIcon(entry.link));
@@ -1488,7 +1539,12 @@
     else searchWeb(input.value.trim());
   }
 
-  suggestions.addEventListener("mousedown", (ev) => ev.preventDefault()); // 保持输入框焦点
+  /* 触摸端 touchend 先于 mousedown 触发，只拦 mousedown 的话：
+     点建议行 → input 先 blur → 150ms 后 hideSuggestions 清空 DOM →
+     随后到达的 click 在空容器上找不到行，这一下"点了没反应" */
+  ["mousedown", "touchstart"].forEach((t) => {
+    suggestions.addEventListener(t, (ev) => ev.preventDefault(), { passive: false });
+  });
   suggestions.addEventListener("click", (ev) => {
     const row = ev.target.closest(".suggestion");
     if (!row) return;
@@ -1498,7 +1554,7 @@
   input.addEventListener("blur", () => {
     setTimeout(() => {
       if (document.activeElement !== input) hideSuggestions();
-    }, 150);
+    }, 300);
   });
 
   /* ───────────────────────── 过滤：面板 + 高亮 + 建议 ───────────────────────── */
@@ -1509,8 +1565,16 @@
     hint.innerHTML = "";
     hint.hidden = false;
     if (count > 0) {
+      /* 触摸端没有物理键盘，↑↓/Enter/Esc 都不存在，别宣传不存在的快捷键 */
       hint.appendChild(
-        document.createTextNode("找到 " + count + " 个结果 · ↑↓ 选择 · Enter 打开 · Esc 清除")
+        document.createTextNode(
+          "找到 " +
+            count +
+            " 个结果" +
+            (FINE_POINTER.matches
+              ? " · ↑↓ 选择 · Enter 打开 · Esc 清除"
+              : " · 点一下直接打开")
+        )
       );
     } else {
       hint.appendChild(document.createTextNode("没有匹配的链接 · 按 Enter 用 "));
@@ -1604,7 +1668,13 @@
     sideNav.querySelectorAll(".side-item").forEach((item) => {
       const on = item.dataset.target === id;
       item.classList.toggle("is-active", on);
-      if (on) activeItem = item;
+      /* 读屏要知道"当前在哪个分类"——它会随滚动自动变化，纯 CSS 高亮条是看不见的 */
+      if (on) {
+        item.setAttribute("aria-current", "true");
+        activeItem = item;
+      } else {
+        item.removeAttribute("aria-current");
+      }
     });
     ensureSideItemVisible(activeItem);
   }
@@ -1742,7 +1812,7 @@
     toTop.hidden = window.scrollY < 520;
   }
   window.addEventListener("scroll", syncToTop, { passive: true });
-  toTop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+  toTop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: REDUCED.matches ? "auto" : "smooth" }));
   syncToTop();
 
   function focusSearch() {
@@ -1763,9 +1833,9 @@
       focusSearch();
       return;
     }
-    /* Esc：先关配色弹层，再收下拉，再清空 */
+    /* Esc：先关配色弹层（并把焦点还给按钮），再收下拉，再清空 */
     if (ev.key === "Escape" && !palettePop.hidden) {
-      closePalette();
+      closePalette(true);
       return;
     }
     if (ev.key === "/" && !typing) {

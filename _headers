@@ -14,7 +14,7 @@
   #   blob:  —— app.js 用 createObjectURL 生成图标
   #   https: —— 图标代理 / Google / DuckDuckGo 这类远程兜底
   #   'unsafe-inline' 仅因为 index.html 里有一段抓配置错误的内联脚本 + 少量内联样式
-  Content-Security-Policy: default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; worker-src 'self'; manifest-src 'self'; media-src 'self' data: blob:; object-src 'none'
+  Content-Security-Policy: default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; worker-src 'self'; manifest-src 'self'; media-src 'self' data: blob:
 
 # 配置与入口文件必须每次回源校验，否则浏览器会拿旧的 data.js / app.js
 /index.html

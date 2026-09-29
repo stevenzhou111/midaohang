@@ -105,6 +105,13 @@ window.SITE = {
     "效率办公": "xiaolv office productivity",
   },
 
+  // 图标别名（可选）：链接换了新域名、但图标库还挂在老域名上时接一下
+  // 图标按域名索引，不接就会掉回首字母
+  iconAlias: {
+    "kimi.com": "kimi.moonshot.cn",
+    "claude.com": "claude.ai",
+  },
+
   categories: [
     {
       name: "常用",
@@ -278,6 +285,10 @@ routes = [{ pattern = "favicon.yourdomain.com/*", zone_name = "yourdomain.com" }
   **自动排在末尾**，不会被旧排序吞掉；
 - 第一次拖动会出现提示条，点「重置排序」一键回到 `data.js` 的原始顺序。
 
+> **键盘也能排**：焦点在分类标题上按 `Alt + ↑/↓` 移动整个分类，在卡片上按 `Alt + ↑/↓`
+> 移动卡片位置。HTML5 拖拽对键盘和触摸都没有等价路径，所以专门留了这条通道
+> （WCAG 2.1.1）。触摸设备上会自动关掉拖拽（本来就不触发，只会让人以为坏了）。
+
 > 手机 / 平板用不了 HTML5 拖拽（浏览器限制），排序请在电脑上完成 ——
 > 排序存在**这台设备的浏览器**里，换设备要重新排。
 
@@ -340,8 +351,11 @@ powershell -ExecutionPolicy Bypass -File .\check-links.ps1
   - `WARN` —— `400/401/403/429`（反爬、要登录）、`5xx`（临时故障）→ 站点还活着，人工点开确认
   - `OK` —— 2xx、跟随跳转后的结果
 - 参数：`-Timeout 15`（放宽超时，境外站用）、`-Retry 2`（连不上的多试几轮）、
+  `-Ignore "https://www.costco.com"`（风控站白名单，见下）、
   `-All`（连成功的也列出来）、`-OutFile report.txt`（额外导出 TSV 报告）；
 - **退出码只有"有 DEAD"才是 1**（`NET` / `WARN` 都算通过），可以接 CI / 计划任务；
+- **风控站要加白名单**：Costco、Steam 这类对脚本请求返 404/403、真人浏览器却是正常的，
+  不排除掉的话每次都会误报、CI 常驻红灯。确认是这类之后再加进 `-Ignore`；
 - **境外站超时**：国内直连时 Steam / Discord / WhatsApp 这类会耗满超时进 `NET`，
   挂上代理再跑一次复核；只有 `DEAD` 才是真死链；
 - 和 `get-icons.ps1` 一样必须 **UTF-8 with BOM** 保存。

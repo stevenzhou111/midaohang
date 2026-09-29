@@ -2,11 +2,12 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>我的导航</title>
   <meta name="description" content="个人导航站">
-  <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)">
-  <meta name="theme-color" content="#f6f8fc" media="(prefers-color-scheme: light)">
+  <!-- 与 styles.css 里的 --bg 保持一致，否则 PWA 状态栏和页面顶部有色差 -->
+  <meta name="theme-color" content="#0a0c12" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#eef1f9" media="(prefers-color-scheme: light)">
   <meta property="og:type" content="website">
   <meta property="og:title" content="我的导航">
   <meta property="og:description" content="个人导航站 · 常用站点一键直达">
@@ -63,7 +64,7 @@
       </div>
 
       <div class="hero-inner">
-        <span class="brand-mark" id="brand-mark">导</span>
+        <span class="brand-mark" id="brand-mark" aria-hidden="true">导</span>
         <h1 id="site-name">我的导航</h1>
         <p class="subtitle" id="site-subtitle"></p>
 
@@ -74,9 +75,9 @@
               <path d="M20 20l-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
             </svg>
 
-            <input id="search-input" class="search-input" type="search" placeholder="搜索链接，或输入关键词搜索网页…" aria-label="搜索" role="combobox" aria-expanded="false" aria-controls="suggestions">
+            <input id="search-input" class="search-input" type="search" placeholder="搜索链接，或输入关键词搜索网页…" aria-label="搜索" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggestions">
 
-            <div class="engines" id="engines" role="tablist" aria-label="搜索引擎"></div>
+            <div class="engines" id="engines" role="radiogroup" aria-label="搜索引擎"></div>
 
             <kbd class="kbd" title="按 / 或 Ctrl K 聚焦搜索">/</kbd>
           </form>
@@ -99,7 +100,7 @@
       <main class="content" id="content" tabindex="-1">
         <section class="panel panel-recent" id="panel-recent" hidden>
           <div class="panel-head panel-head-static">
-            <span class="cat-emoji">⏱</span>
+            <span class="cat-emoji" aria-hidden="true">⏱</span>
             <span class="panel-title">常用站点</span>
             <span class="count" id="recent-count">0</span>
             <span class="rule" aria-hidden="true"></span>
