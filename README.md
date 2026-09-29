@@ -32,7 +32,7 @@
 ## 功能
 
 - **21 个分类 / 199 个链接**：常用、AI 工具、开发工具、文档与教程、设计灵感、资讯社区、影音娱乐、效率办公、云服务与账户、编程刷题、在线课程、学术与阅读、旅行出行、购物比价、在线工具、游戏娱乐、社交通讯、财经行情、科技前沿、AI 模型与开发、运动健康
-- **本地图标库**：`icons.js`（98 个站点的品牌 logo，单色 SVG）+ `icons-img.js`（82 个站点的真实 favicon 位图），全部**内联在页面里 —— 零请求、离线可用、国内可用、跟随主题变色**（合计覆盖 199 条链接里的 181 条）；两库都没有的才走 代理 → Google → DuckDuckGo → 首字母
+- **本地图标库**：`icons.js`（108 个站点的品牌 logo，单色 SVG）+ `icons-img.js`（88 个站点的真实 favicon 位图），全部**内联在页面里 —— 零请求、离线可用、国内可用、跟随主题变色**（合计覆盖 199 条链接里的 194 条）；两库都没有的才走 代理 → Google → DuckDuckGo → 首字母
 - **搜索**：
   - **拼音首字母**：输 `wy` 找「网易云音乐」，输 `baidu` 找「百度」（靠链接的 `py` / `pyFull` 字段）
   - **模糊匹配**：`gb` 能中 GitHub（按顺序命中即可，越靠前得分越高）
@@ -76,7 +76,7 @@
 | `get-icons.ps1` | 一键补图标脚本：抓 data.js 里缺图标的站点（PowerShell，零依赖） |
 | `check-links.ps1` | 死链检测脚本：并发扫全部链接的 HTTP 状态，分类报告 |
 | `tests.html` | **自检页**：校验 data.js / 图标库 / 纯函数模块 / PWA / HTML 引用是否自洽 |
-| `.github/workflows/check.yml` | **CI**：push/PR 跑语法检查 + 28 条纯函数断言，部署后再回读线上自检页 |
+| `.github/workflows/check.yml` | **CI**：push/PR 跑语法检查 + 30 条纯函数断言，部署后再回读线上自检页 |
 | `.editorconfig` | 编辑器统一配置：`.ps1` 强制 UTF-8 **with BOM**（见文末《脚本编码》） |
 | `manifest.webmanifest` | PWA 清单：安装到桌面 / 主屏时的名字、图标、窗口样式 |
 | `sw.js` | Service Worker：离线兜底（网络优先，改配置立刻生效） |
@@ -104,7 +104,7 @@ index.html ──┬─ data.js          内容配置（唯一事实来源）
 线上构建挂了"这种最耗人的故障），也没有供应链风险。
 
 **2. 纯函数与 DOM 分开，但不拆到底。** `js/` 下三个模块不碰 DOM，因此可以在 Node 里
-直接 `import` 做断言（CI 的 28 条就是它们）。而 `app.js` 里的排序、建议下拉、图标挂载
+直接 `import` 做断言（CI 的 30 条就是它们）。而 `app.js` 里的排序、建议下拉、图标挂载
 依赖 `panels` / `entries` / `iconTargets` 这些运行时状态，**依赖密集，强行拆开要靠
 参数层层传递，收益抵不上回归风险** —— 所以 DOM 壳刻意保持单文件。
 什么时候再拆：出现第二个维护者，或开始给 app.js 写单元测试时。
@@ -234,7 +234,7 @@ Cloudflare 控制台 → **Workers 和 Pages** → **创建** → **Pages** → 
 > 是不行的（构建机上没有你的仓库文件）；正确做法是**本地先跑一次**
 > `deploy.ps1 -PackOnly` 生成 `_site\`，再把 `_site\` 作为独立目录上传（方式 B）。
 > `deploy.ps1` 的文件清单是**从 `index.html` + `app.js` 的 import + `manifest` + `sw.js`
-> 自动推导**的（当前 18 个文件），新增资源不用再手工维护清单。
+> 自动推导**的（当前 19 个文件），新增资源不用再手工维护清单。
 
 ## 自己加了链接，图标自动来（get-icons.ps1）
 
@@ -267,12 +267,13 @@ icons.js / icons-img.js  →  你自己部署的 favicon-worker  →  Google  �
      （本地，零请求，首选）          （同域，带缓存）            （国内基本不通）       （兜底）
 ```
 
-- **`icons.js`**：98 个站点的品牌 logo（simple-icons，单色 SVG），内联进页面 ——
+- **`icons.js`**：108 个站点的品牌 logo（simple-icons，单色 SVG），内联进页面 ——
   **不发任何网络请求、离线也能显示、自动跟随深浅色主题**；
-- **`icons-img.js`**：85 个站点抓来的真实 favicon（data URI），覆盖品牌库没有的国内外站点
+- **`icons-img.js`**：88 个站点抓来的真实 favicon（data URI），覆盖品牌库没有的国内外站点
   （京东 / 天猫 / 拼多多 / 12306 / 高德 / 微信 / 雪球 …），同样零请求；
-- **当前覆盖**：21 个分类 199 条链接里，**183 条有本地图标（92%）**，剩 16 条是
-  抓不到的境外站（超时 / WAF / 返回 HTML 错误页），显示字母兜底；挂代理时跑一次 `get-icons.ps1` 多半能补上。
+- **当前覆盖**：21 个分类 199 条链接里，**194 条有本地图标（97%）**，剩 5 条是
+  抓不到的境外站（英为财情 / Yahoo Finance / WIRED / Engadget / Grok），显示字母兜底；
+  挂代理时跑一次 `get-icons.ps1` 或部署 `favicon-worker` 多半能补上。
 - `get-icons.ps1` 也认站点把图标**内联成 `data:` URI** 的情况（SteamDB、部分文档站），
   直接收下而不是丢给 curl（curl 不支持 `data:` 协议）。
 
@@ -406,7 +407,8 @@ routes = [{ pattern = "favicon.yourdomain.com/*", zone_name = "yourdomain.com" }
 >
 > **CI**（`.github/workflows/check.yml`）在 push / PR 时做三件事：
 > 1. `node --check` 扫所有 `.js`；
-> 2. 跑 28 条纯函数断言 + `data.js` 静态一致性（`py` 撞车 / 重复 url / 非 https / 别名孤儿键）；
+> 2. 跑 30 条断言：纯函数模块 + `data.js` 静态一致性
+>    （`py` 撞车 / 重复 url / 非 https / `window.SITE` 可解析 / `categoryAlias` 孤儿键 / `iconAlias` 目标存在）；
 > 3. 部署完成后回读线上 <https://midaohang.pages.dev/tests> 的标题，`fail≠0` 就把这次发布标红。
 >
 > 第 2 条与自检页里的 `data.js` 检查同源，作用是"**部署的是仓库内容，

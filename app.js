@@ -415,8 +415,12 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
      这期间不去试远程兜底，否则会把"我们本来就有"的图标又白发几十个请求出去。 */
   let bitmapsPending = !!document.getElementById("icons-img-script");
 
-  /* 所有已经建过图标的挂载点：位图库到货后要挨个补图标 */
+  /* 所有已经建过图标的挂载点：位图库到货后要挨个补图标。
+     iconTargetSet 管去重（替代 O(n) 的 some）；busyWraps 记录"有加载链在飞"的
+     挂载点，防止 refreshLocalIcons 重跑时和在飞的链各挂一张图。 */
   const iconTargets = [];
+  const iconTargetSet = new Set();
+  const busyWraps = new WeakSet();
 
   function hostOf(url) {
     try {
@@ -623,8 +627,20 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     const sources = [];
 
     /* 登记一下：位图库异步到货后要回头补图标 */
-    const target = { wrap: wrap, link: link };
-    if (!iconTargets.some((t) => t.wrap === wrap)) iconTargets.push(target);
+    if (!iconTargetSet.has(wrap)) {
+      iconTargetSet.add(wrap);
+      /* renderRecent 每次点击都整批重建 pill：超过阈值就清掉已断开的旧挂载点，
+         数组不再只增不减 */
+      if (iconTargets.length >= 400) {
+        for (let i = iconTargets.length - 1; i >= 0; i--) {
+          if (!iconTargets[i].wrap.isConnected) {
+            iconTargetSet.delete(iconTargets[i].wrap);
+            iconTargets.splice(i, 1);
+          }
+        }
+      }
+      iconTargets.push({ wrap: wrap, link: link });
+    }
 
     /* 1) 本地图标库（首选）：SVG 走内联，data URI（icons-img.js 抓的真实 favicon）走 <img> */
     const local = localIconFor(host);
@@ -678,6 +694,23 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
         return tryImgIcon(wrap, source.url);
       });
     });
+    if (sources.length) {
+      /* 链在飞期间位图库到货的话，refreshLocalIcons 会跳过这个 wrap（busyWraps），
+         所以链结束时若它仍空着，要按"位图库已就位"的新状态补跑一次。
+         位图库只到货一次，这里最多补跑一轮，不会循环。 */
+      const bitmapsAtStart = bitmapsPending;
+      busyWraps.add(wrap);
+      chain.then(() => {
+        busyWraps.delete(wrap);
+        if (
+          bitmapsAtStart && !bitmapsPending && wrap.isConnected &&
+          !wrap.classList.contains("has-svg") &&
+          !wrap.querySelector("img, .fav-svg")
+        ) {
+          loadIcon(wrap, link);
+        }
+      });
+    }
     return chain;
   }
 
@@ -689,10 +722,12 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     bitmapsPending = false;
     localIconFor = createLocalIconLookup(makeIconIndex());
 
-    /* 逐个补：已经有 SVG 或已经有 <img> 的不动，只救还空着的 */
+    /* 逐个补：已经有 SVG 或已经有 <img> 的不动，只救还空着的；
+       有加载链在飞的也跳过（busyWraps）——那条链结束时会自己按新状态补跑 */
     iconTargets.slice().forEach((t) => {
       if (!t || !t.wrap || !t.wrap.isConnected) return;
       const wrap = t.wrap;
+      if (busyWraps.has(wrap)) return;
       if (wrap.classList.contains("has-svg") || wrap.classList.contains("has-img")) return;
       if (wrap.querySelector("img, .fav-svg")) return;
       loadIcon(wrap, t.link);
@@ -1067,8 +1102,10 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
       const panel = entry.panel;
       if (!panel || panel.id === "panel-recent") return; // 常用站点固定在最前
       const sib = dir < 0 ? panel.previousElementSibling : panel.nextElementSibling;
-      if (!sib) return;
-      if (dir < 0 && sib.id === "panel-recent") return; // 不越过固定面板
+      /* 相邻元素必须是分类面板：向下会撞上 #empty（把空态段落搬进面板中间），
+         向上会撞上 sortTip 提示条；panel-recent 固定在最前，不许越过 */
+      if (!sib || !sib.classList.contains("panel")) return;
+      if (sib.id === "panel-recent") return;
       if (dir < 0) content.insertBefore(panel, sib);
       else content.insertBefore(sib, panel);
 
@@ -1402,6 +1439,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     const row = document.createElement("div");
     row.className = "suggestion suggestion-action";
     row.setAttribute("role", "option");
+    row.id = "sug-search"; // 方向键走到这一行时 aria-activedescendant 要有东西可指
     row.dataset.index = String(suggestionRows.length - 1);
 
     const mag = document.createElement("span");

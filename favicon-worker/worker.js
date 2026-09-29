@@ -66,8 +66,16 @@ export default {
       });
     }
 
-    const raw =
-      url.searchParams.get("domain") || decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+    /* 畸形路径（如 GET /%）会让 decodeURIComponent 抛 URIError ——
+       不兜住就是 Worker 1101；域名正则校验在 decode 之后，救不了这一步 */
+    let raw = url.searchParams.get("domain");
+    if (!raw) {
+      try {
+        raw = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+      } catch (err) {
+        raw = "";
+      }
+    }
     const domain = String(raw || "").trim().toLowerCase();
 
     if (!domain) {

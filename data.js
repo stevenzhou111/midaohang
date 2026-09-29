@@ -15,9 +15,9 @@
  *   linkOrder      链接排序："config"（按你写的顺序）| "name"（按名称排序）
  *   showRecent     是否显示"常用站点"卡片（自动记录点击）
  *   recentCount    常用卡片最多显示几条
- *   faviconProxy   图标代理地址，留空 "" 则只走 Google / DuckDuckGo 直连。
- *                  国内建议部署 favicon-worker 后保持默认 "/favicon"，
- *                  详见 README《图标在国内全挂怎么办》。
+ *   faviconProxy   图标代理地址，留空 "" 则只走 Google / DuckDuckGo 直连（当前默认）。
+ *                  国内建议部署 favicon-worker 后填它的地址
+ *                  （如 "https://nav-favicon.<账号>.workers.dev/"），详见 README《图标在国内全挂怎么办》。
  *
  * ── categories ──────────────────────────────────────
  *   name     分类名（必填）

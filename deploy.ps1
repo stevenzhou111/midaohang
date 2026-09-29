@@ -9,7 +9,7 @@
       powershell -ExecutionPolicy Bypass -File .\deploy.ps1 -PackOnly       # 只打包，不上传
       powershell -ExecutionPolicy Bypass -File .\deploy.ps1 -Project my-nav # 指定项目名
 
-  只上传 _site\（15 个运行期文件），不会把 .git、*.ps1、README、favicon-worker 传到公网。
+  只上传 _site\（19 个运行期文件），不会把 .git、*.ps1、README、favicon-worker 传到公网。
   改完 data.js / 样式后重跑一次本脚本即可发布。
 #>
 param(
@@ -33,7 +33,9 @@ foreach ($m in [regex]::Matches($html, '(?:src|href)="([^"#][^"]*)"')) {
   if ($u -match '^(https?:|data:|mailto:|javascript:|#)') { continue }
   [void]$list.Add(($u -split '\?')[0])
 }
-foreach ($extra in 'index.html', 'app.js', 'sw.js', 'manifest.webmanifest', '404.html', 'robots.txt', '_headers') {
+# tests.html 不被 index.html 引用（自检页独立存在），但 README / CI 都指向线上的 /tests，
+# 漏掉它的话 wrangler 直传路径下线上自检页就是 404
+foreach ($extra in 'index.html', 'app.js', 'sw.js', 'manifest.webmanifest', '404.html', 'robots.txt', '_headers', 'tests.html') {
   [void]$list.Add($extra)
 }
 # app.js 是 ES Module，会 import 其它 js：这些不在 index.html 里，必须一并带上

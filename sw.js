@@ -14,7 +14,7 @@
    注意：修改本文件后，浏览器要等 service worker 更新（Ctrl+F5 或关掉标签页重开）
    才生效；改了 sw.js 本身请把下面 CACHE 的版本号 +1，旧缓存会被自动清掉。 */
 
-const CACHE = "nav-cache-v2";
+const CACHE = "nav-cache-v3";
 
 /* app.js 自己也会写缓存（远程 favicon 抓下来的位图），activate 时必须留着它，
    否则每次 SW 升版都会连带清空，用户要重新抓一遍图标 */
@@ -35,8 +35,12 @@ const CORE = [
   "apple-touch-icon.png"
 ];
 
-/* 图标库：体积大、变动少，走 stale-while-revalidate */
-const REVALIDATE = ["/icons.js", "/icons-img.js"];
+/* 图标库：体积大、变动少，走 stale-while-revalidate。
+   用 SW 脚本位置解析成绝对路径：写死 "/icons.js" 只在根路径部署下能匹配，
+   部署到子路径（如 GitHub Pages 项目站 /repo/）时 pathname 带前缀，永远命中不了。 */
+const REVALIDATE = ["icons.js", "icons-img.js"].map(
+  (file) => new URL(file, self.location).pathname
+);
 
 /* 安装：把核心资源预热进缓存；单个失败不影响安装 */
 self.addEventListener("install", (event) => {

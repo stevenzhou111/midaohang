@@ -1,6 +1,4 @@
+# 个人导航站：全站允许收录。
+# （图标代理 Worker 部署在独立域名，不在本站 robots 管辖内，故不再写 Disallow: /favicon）
 User-agent: *
 Allow: /
-Disallow: /favicon
-
-# 个人导航站：允许收录首页与分类页，
-# 但不要爬图标代理 Worker 的 URL（纯机器接口，对收录无意义）。

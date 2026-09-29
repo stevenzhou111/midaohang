@@ -305,13 +305,15 @@
   const order = { F: 0, W: 1, P: 2 };
   const groups = [];
 
-  function render() {
+  function render(final) {
     results.forEach((r) => { if (groups.indexOf(r.group) < 0) groups.push(r.group); });
     const fails = results.filter((r) => r.level === "F").length;
     const warns = results.filter((r) => r.level === "W").length;
     const passes = results.filter((r) => r.level === "P").length;
     document.title = "SELFCHECK ok=" + passes + " fail=" + fails + " warn=" + warns;
-    if (document.getElementById("out").childElementCount) return; // 已渲染过
+    /* 4s 兜底先画过部分结果时，异步检查全部落地后要 final=true 整体重画一次，
+       否则这个守卫会把最终结果挡在门外，页面明细永远停在半截 */
+    if (document.getElementById("out").childElementCount && !final) return;
 
     document.getElementById("bar").innerHTML =
       '<span class="chip pass">' + passes + " 通过</span>" +
@@ -330,8 +332,8 @@
   /* 等所有异步检查（manifest / sw.js / index.html 的 fetch）都落地再出结果，
      否则慢网络下只能看到前几组 —— 之前就是这个坑：固定 900ms 渲染，
      fetch 稍慢一点就整组消失，看着像"没发现问题"。 */
-  Promise.all(pending).then(render, render);
-  setTimeout(render, 4000); // 兜底：某个 fetch 卡死时也要出结果
+  Promise.all(pending).then(() => render(true), () => render(true));
+  setTimeout(() => render(false), 4000); // 兜底：某个 fetch 卡死时也要出结果
 })();
 </script>
 </body>
