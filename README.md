@@ -1,6 +1,9 @@
 # 个人导航站
 
 纯静态 HTML/CSS/JS 实现，零依赖、零构建，直接部署到 Cloudflare Pages。
+
+**线上地址：<https://midaohang.pages.dev/>**（仓库 `stevenzhou111/midaohang`，push 到 `main` 自动部署）
+
 所有内容由 `data.js` 配置文件驱动 —— 改配置即改网站。
 （图标优先用本地 `icons.js`，完全离线；只有没覆盖的站点才需要可选的 `favicon-worker/`。）
 
@@ -92,7 +95,7 @@ window.SITE = {
     linkOrder: "config",       // config = 按你写的顺序；name = 按名称排序
     showRecent: true,          // 是否显示"常用站点"
     recentCount: 8,            // 常用最多几条
-    faviconProxy: "/favicon",  // 图标代理，留空 "" 则走直连（详见下文）
+    faviconProxy: "",           // 图标代理，"" = 直连 Google/DDG（默认）；部署 favicon-worker 后填它的地址（详见下文）
   },
 
   // 分类搜索别名（可选）：分类名 → "拼音首字母 完整拼音 英文"
@@ -145,19 +148,22 @@ window.SITE = {
 
 ## 部署到 Cloudflare
 
-### 方式 A：Git 集成（推荐，可随时在线改 `data.js`）
+### 方式 A：Git 集成（推荐，可随时在线改 `data.js`）—— 当前用的就是这条
 
-1. 推送本目录到 GitHub / GitLab 仓库；
+1. 推送本目录到 GitHub / GitLab 仓库（本项目：`stevenzhou111/midaohang`，`main` 分支）；
 2. Cloudflare 控制台 → **Workers 和 Pages** → **创建** → **Pages** → **连接到 Git**；
-3. 构建命令留空，输出目录填 `/`；
-4. 之后每次 `git push` 自动部署，也能直接在 GitHub 网页编辑 `data.js`，几秒后线上生效。
+   首次需安装 Cloudflare 的 GitHub App，**记得在授权列表里勾上这个仓库**（新建的仓库默认不在）；
+3. 框架预设选 **None**，构建命令**留空**，输出目录填 `/`，根目录留空 → **保存并部署**；
+4. 之后每次 `git push` 自动部署，也能直接在 GitHub 网页编辑 `data.js`，几十秒后线上生效。
 
-### 方式 B：直接上传
+### 方式 B：直接上传（回退方案）
 
 Cloudflare 控制台 → **Workers 和 Pages** → **创建** → **Pages** → **直接上传**，
-拖入整个文件夹；再到 **自定义域** 绑定域名。
+拖入 `deploy.ps1` 打包出来的 `_site\`，再到 **自定义域** 绑定域名。
 
-> 也可用 CLI：`npx wrangler pages deploy .`
+> CLI 等价做法：`powershell -ExecutionPolicy Bypass -File .\deploy.ps1`
+> （先 `cmd /c "npx --yes wrangler@latest login"` 授权一次；`-PackOnly` 只打包不上传）。
+> 不建议 `wrangler pages deploy .`——那会把 README、`*.ps1`、`favicon-worker/` 一起发到公网。
 
 ## 自己加了链接，图标自动来（get-icons.ps1）
 

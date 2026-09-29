@@ -47,7 +47,7 @@ window.SITE = {
     linkOrder: "config",
     showRecent: true,
     recentCount: 8,
-    faviconProxy: "/favicon",
+    faviconProxy: "", // 图标代理地址；"" = 直连 Google/DDG。只有部署了 favicon-worker 才填它的地址
   },
 
   /* 分类搜索别名：分类名 → "拼音首字母 完整拼音 英文"（可选）

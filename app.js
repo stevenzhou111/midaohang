@@ -303,7 +303,7 @@
       linkOrder: "config",
       showRecent: true,
       recentCount: 8,
-      faviconProxy: "/favicon",
+      faviconProxy: "", // 默认直连；同域代理需在 data.js 里显式配置（避免无代理时发一个必然 404 的探测）
     },
     SITE.settings || {}
   );
