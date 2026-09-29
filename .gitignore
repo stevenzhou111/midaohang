@@ -1,0 +1,10 @@
+# 本项目零构建，正常不会出现这些；出现即忽略，避免误提交
+node_modules/
+.wrangler/
+.dev.vars
+*.log
+*.bak
+*.tmp
+link-report.txt
+.DS_Store
+Thumbs.db

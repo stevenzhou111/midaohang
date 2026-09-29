@@ -1,0 +1,9 @@
+# nav-favicon 图标代理
+# 部署：npx wrangler deploy
+# 部署后把输出的地址填进 data.js 的 settings.faviconProxy
+name = "nav-favicon"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# 想挂到自己域名下（推荐），取消下面注释并改成你的域名 / 区域：
+# routes = [{ pattern = "favicon.yourdomain.com/*", zone_name = "yourdomain.com" }]

@@ -1,0 +1,40 @@
+# Cloudflare Pages 专用：给所有响应加安全头，并保证改完 data.js 立刻生效。
+# （本地打开文件或 python -m http.server 不会读这个文件，只影响线上）
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  X-Frame-Options: SAMEORIGIN
+
+# 配置与入口文件必须每次回源校验，否则浏览器会拿旧的 data.js / app.js
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/data.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/app.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/styles.css
+  Cache-Control: public, max-age=0, must-revalidate
+
+# 图标库改动较少，允许缓存 1 小时（ETag 校验后会拿到 304）
+/icons.js
+  Cache-Control: public, max-age=3600, must-revalidate
+
+/icons-img.js
+  Cache-Control: public, max-age=3600, must-revalidate
+
+# 404 页
+/404.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# PWA：清单和 SW 必须每次校验，否则改了 sw.js 要等一天才更新
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  Cache-Control: no-cache, must-revalidate
