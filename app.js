@@ -463,12 +463,15 @@
   let remoteAttempts = 0; // 已放行的数量（取源时计数，不是失败时）
 
   /* 本地图标库：icons.js（品牌 SVG）+ icons-img.js（抓取的真实 favicon data URI）
-     建索引时兼容有无 www. 两种写法，SVG 与位图共用同一套查询 */
-  const LOCAL_ICONS = (function () {
+     建索引时兼容有无 www. 两种写法，SVG 与位图共用同一套查询。
+     icons-img.js 是异步加载的（150KB，不能挡首屏），所以索引要能重建。 */
+  const bareHost = (h) => String(h == null ? "" : h).replace(/^www\./, "");
+
+  function buildIconIndex() {
     const idx = Object.create(null);
     [window.ICONS || {}, window.ICONS_IMG || {}].forEach((src) => {
       Object.keys(src).forEach((key) => {
-        const bare = key.replace(/^www\./, "");
+        const bare = bareHost(key);
         idx[key] = src[key];
         if (!idx[bare]) idx[bare] = src[key];
         if (!idx["www." + bare]) idx["www." + bare] = src[key];
@@ -478,11 +481,10 @@
     /* iconAlias：把新域名接回图标库里已有的老域名。
        图标是按域名索引的，链接地址一改（比如 kimi.moonshot.cn → www.kimi.com）
        图标就掉了，在 data.js 里写一行 "新域名": "老域名" 即可，不用重新抓图。 */
-    const bare = (h) => String(h == null ? "" : h).replace(/^www\./, "");
     const alias = (window.SITE && window.SITE.iconAlias) || {};
     Object.keys(alias).forEach((host) => {
-      const to = bare(host);
-      const from = bare(alias[host]);
+      const to = bareHost(host);
+      const from = bareHost(alias[host]);
       if (!to || !from || idx[to]) return; // 已经有自己的图标就别覆盖
       if (idx[from]) {
         idx[to] = idx[from];
@@ -490,7 +492,16 @@
       }
     });
     return idx;
-  })();
+  }
+
+  let LOCAL_ICONS = buildIconIndex();
+
+  /* 位图图标库（icons-img.js）还没到时，先用首字母顶着：
+     这期间不去试远程兜底，否则会把"我们本来就有"的图标又白发几十个请求出去。 */
+  let bitmapsPending = !!document.getElementById("icons-img-script");
+
+  /* 所有已经建过图标的挂载点：位图库到货后要挨个补图标 */
+  const iconTargets = [];
 
   function localIconFor(host) {
     if (!host) return "";
@@ -701,6 +712,10 @@
     const host = hostOf(link.url);
     const sources = [];
 
+    /* 登记一下：位图库异步到货后要回头补图标 */
+    const target = { wrap: wrap, link: link };
+    if (!iconTargets.some((t) => t.wrap === wrap)) iconTargets.push(target);
+
     /* 1) 本地图标库（首选）：SVG 走内联，data URI（icons-img.js 抓的真实 favicon）走 <img> */
     const local = localIconFor(host);
     if (local && /^<svg[\s>]/i.test(String(local).trim())) {
@@ -716,9 +731,12 @@
       return Promise.resolve();
     }
 
-    /* 2) 自定义图标 / 同域代理 / 远程源兜底 */
+    /* 2) 自定义图标 / 同域代理 / 远程源兜底
+       位图库还在路上时，一律不去试远程：这批站点多半正是本地有位图的那批，
+       现在发出去就是几十个白费请求 + 把隐私预算烧光。等 refreshLocalIcons()
+       到位后重跑一遍，那时才知道谁是真的没有。 */
     if (link.icon) sources.push({ mode: "img", url: link.icon });
-    else if (host) {
+    else if (host && !bitmapsPending) {
       if (proxyState === "ok") {
         /* 代理可用：Worker 内部已经试过 Google / DDG / favicon.im，
            浏览器就不用再各发一次了（省 2 个请求 × 几十个图标） */
@@ -751,6 +769,46 @@
       });
     });
     return chain;
+  }
+
+  /* icons-img.js（150KB 位图库）到货后：重建索引 + 给还停在首字母的图标补位。
+     这个库是异步的（<link rel=preload> 让它和 CSS 并行下载，但不挡首屏渲染），
+     所以首屏可能先以字母呈现，几十到几百毫秒后自动换成真实 favicon。 */
+  function refreshLocalIcons() {
+    if (!window.ICONS_IMG) return;
+    bitmapsPending = false;
+    LOCAL_ICONS = buildIconIndex();
+
+    /* 逐个补：已经有 SVG 或已经有 <img> 的不动，只救还空着的 */
+    iconTargets.slice().forEach((t) => {
+      if (!t || !t.wrap || !t.wrap.isConnected) return;
+      const wrap = t.wrap;
+      if (wrap.classList.contains("has-svg") || wrap.classList.contains("has-img")) return;
+      if (wrap.querySelector("img, .fav-svg")) return;
+      loadIcon(wrap, t.link);
+    });
+
+    /* 代理/远程探测还在飞行中时队列不会被冲掉，这里再补一次 */
+    flushIcons();
+  }
+
+  function watchBitmapLibrary() {
+    const s = document.getElementById("icons-img-script");
+    if (!s) {
+      /* 没有这个标签 = 没走异步路径，位图库必然是同步就绪的 */
+      bitmapsPending = false;
+      return;
+    }
+    if (window.ICONS_IMG) refreshLocalIcons();
+    else {
+      s.addEventListener("load", refreshLocalIcons);
+      /* 加载失败（离线 / 404）时 load 永远不来，必须把"还在等"这个状态解掉，
+         否则远程兜底会被永久压制，图标只剩首字母 */
+      s.addEventListener("error", () => {
+        bitmapsPending = false;
+        flushIcons();
+      });
+    }
   }
 
   /* ───────────────────────── 点击记录与常用站点 ───────────────────────── */
@@ -1857,6 +1915,11 @@
     renderRecent();
     applyFilter();
     updateSpy();
+
+    /* 位图图标库（icons-img.js，150KB）是异步的：先挂上监听，
+       它一执行完就会补图标；期间所有图标先用首字母/SVG 顶着，
+       也不去试远程兜底（省掉几十个白费请求） */
+    watchBitmapLibrary();
 
     /* 两个探测并行：代理状态 + 远程图标可达性，都定了再统一刷图标队列 */
     Promise.all([detectProxy(), detectRemoteIcons()]).then(flushIcons);

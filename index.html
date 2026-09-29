@@ -129,7 +129,10 @@
 
   <script src="data.js"></script>
   <script src="icons.js"></script>
-  <script src="icons-img.js"></script>
+  <!-- 位图图标库 150KB，占首屏 65%。async + preload：和 CSS 并行下载，
+       但不挡首屏渲染；到货后 app.js 的 watchBitmapLibrary() 会补图标。 -->
+  <link rel="preload" href="icons-img.js" as="script">
+  <script src="icons-img.js" id="icons-img-script" async></script>
   <script src="app.js"></script>
 </body>
 </html>

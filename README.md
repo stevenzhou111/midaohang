@@ -69,9 +69,10 @@
 | `app.js` | 渲染、搜索与建议下拉、折叠、滚动定位、记录、主题与配色、视图切换、拖拽排序、图标加载、Service Worker 注册 |
 | `data.js` | **你的内容配置**（改这个就行） |
 | `icons.js` | **本地图标库（SVG）**：域名 → 品牌 logo（新增站点想带图标就加一行） |
-| `icons-img.js` | **本地图标库（位图）**：域名 → 抓取的真实 favicon data URI |
+| `icons-img.js` | **本地图标库（位图）**：域名 → 抓取的真实 favicon data URI。**异步加载**（150KB，不挡首屏，见《性能》一节） |
 | `get-icons.ps1` | 一键补图标脚本：抓 data.js 里缺图标的站点（PowerShell，零依赖） |
 | `check-links.ps1` | 死链检测脚本：并发扫全部链接的 HTTP 状态，分类报告 |
+| `tests.html` | **自检页**：校验 data.js / 图标库 / PWA / HTML 引用是否自洽（改完配置打开看一眼） |
 | `manifest.webmanifest` | PWA 清单：安装到桌面 / 主屏时的名字、图标、窗口样式 |
 | `sw.js` | Service Worker：离线兜底（网络优先，改配置立刻生效） |
 | `icon-192.png` `icon-512.png` `icon-maskable-512.png` `apple-touch-icon.png` | PWA / 主屏图标（渐变底 + 白色字标，与 favicon 同款） |
@@ -140,12 +141,33 @@ window.SITE = {
 
 ## 性能
 
-- **首屏 0 个外部图片请求**：命中的图标全部内联在 `icons.js` / `icons-img.js` 里，离线也秒出
+**首屏传输量（线上实测 brotli）**
+
+| 文件 | br | 说明 |
+|---|---|---|
+| `icons-img.js` | 153.7 KB | **异步加载，不进首屏关键路径** |
+| `icons.js` | 40.7 KB | 98 个品牌 SVG |
+| `app.js` | 22.9 KB | |
+| `styles.css` | 9.1 KB | |
+| `data.js` | 9.0 KB | |
+| `index.html` | 6.4 KB | |
+| `sw.js` + manifest | 2.4 KB | |
+| **首屏关键路径合计** | **约 88 KB** | 加上异步的 153.7 KB 图标库在后面自己补齐 |
+
+- **位图图标库异步加载**：它占全站 65%，但只是 `window.ICONS_IMG = {...}` 一句赋值，
+  得等卡片建好才有意义。所以用 `<link rel=preload>` 让它和 CSS **并行下载**，
+  脚本本身打 `async` **不挡首屏渲染**；`app.js` 的 `watchBitmapLibrary()` 监听它执行完，
+  重建图标索引并给还停在首字母的图标补位（`refreshLocalIcons()`）。
+  顺带的好处：这期间**不去试远程兜底**，省掉几十个"我们本来就有"的图标请求。
+  实测：首屏 0–300ms 内 99 个 SVG 图标已就位、0 个远程请求；位图库执行后位图补齐到 85 个，
+  只剩 15 个真·没有本地图标的境外站。
+- **不要把 base64 换成二进制**：br 对 base64 的压缩率约 42%，而 PNG 本身已压缩，
+  换裸二进制后 br 几乎压不动（~196KB）——**现在的 base64 + br 是最优解**。
+- **首屏 0 个外部图片请求**：命中的图标全部内联，离线也秒出
 - **远程图标先探测**：启动时用 1.5 秒超时探测 Google 图标服务，连不上就**整页不发**远程请求
   （连得上也只放行前 24 个图标），不会出现几十个 favicon 同时挂起；结果记 6 小时，下次秒开
-- **体积**（实测 raw / gzip -9）：首屏 6 个文件合计 **469KB → gzip 219KB**，零依赖零构建；
-  其中图标库占 raw 的 76%、gzip 传输量的 85%（355KB / 186KB）。不需要图标时删掉
-  `index.html` 里两行图标脚本，立刻降到 **114KB → gzip 32KB**
+- **离线兜底**：SW 对配置文件网络优先（改完刷新即生效），图标库 stale-while-revalidate
+  （先给缓存秒开，后台悄悄更新），断网才回退缓存
 - **移动端降级**：≤640px 减弱模糊层、关闭入场动画，长列表不掉帧
 - 图标懒加载（`loading="lazy"`）、滚动监听节流（`requestAnimationFrame`）
 - **线上安全与缓存**：`_headers` 加 `nosniff` / `Referrer-Policy` / `Permissions-Policy`，
@@ -315,6 +337,33 @@ routes = [{ pattern = "favicon.yourdomain.com/*", zone_name = "yourdomain.com" }
 
 变量定义在 `styles.css` 里 `html[data-accent="..."]` 块，想再加一套：
 复制一组改颜色，再到 `app.js` 的 `ACCENTS` 数组里加一行 `id / name / from / to`。
+
+## 自检页（tests.html）
+
+改完 `data.js`、加完链接和图标，**打开 `tests.html` 看一眼**（本地双击或线上
+`https://midaohang.pages.dev/tests.html`）。它是一张零依赖的检查表，
+**刻意不加载 `app.js`** —— 独立重新实现一遍规则，才能发现 `app.js` 自己的 bug。
+
+检查项：
+
+- **配置**：`siteName` 有值、分类数、链接总数、每条有 `name` / `https://` 的 `url`、
+  同分类内不重名、**全局不重复 url**、**`py` 不撞车**
+  （撞了搜一个拼音会同时命中两个完全不同的站点）、`pyFull` 合法
+- **别名**：`categoryAlias` 的每个键都对应真实分类（分类改名后会变成孤儿键）、
+  `iconAlias` 的每个目标都真实存在于图标库
+- **图标库**：两个库的条目数、位图是否全部是 `data:image/…`（不是的话浏览器不认）、
+  本地图标覆盖率与缺失清单、疑似多余条目
+- **PWA**：`manifest.webmanifest` 能否解析、声明的图标能否取到、
+  `sw.js` 预热清单里的文件是否都存在
+- **HTML**：`index.html` 引用的本地文件是否都存在、有没有内联 `on*` 事件、
+  `icons-img.js` 有没有 `id="icons-img-script"`（缺了异步加载补不上图标）、
+  viewport 有没有 `viewport-fit=cover`
+
+结果分三档：**F 失败**（必须修）、**W 提醒**（多为"抓不到图标"这类环境问题）、**P 通过**。
+页面标题会写成 `SELFCHECK ok=12 fail=0 warn=1`，方便无头浏览器或 CI 抓标题做断言。
+
+> 这个站没有构建步骤，所以校验只能自己加。`tests.html` 就是最轻的一层：
+> 纯静态，Pages 上直接能开，不需要 Node、不需要装任何东西。
 
 ## PWA：安装到桌面 / 主屏
 

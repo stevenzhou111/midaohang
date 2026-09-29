@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自检</title>
+<!-- 自检页刻意不加载 styles.css / app.js：它必须独立于被测代码，
+     自己重新实现一遍规则，否则 app.js 里的 bug 会被自检页原样继承 -->
+<style>
+  :root { color-scheme: light dark; --ok: #15803d; --bad: #b91c1c; --warn: #a16207; --dim: #64748b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 20px 60px; font: 14px/1.65 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f6f8fc; color: #0f172a; }
+  @media (prefers-color-scheme: dark) { body { background: #0a0c12; color: #e6e9f0; } }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin-bottom: 20px; }
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .chip { padding: 8px 14px; border-radius: 10px; font-weight: 700; border: 1px solid currentColor; }
+  .pass { color: var(--ok); } .fail { color: var(--bad); } .warn { color: var(--warn); }
+  h2 { font-size: 15px; margin: 26px 0 8px; padding-bottom: 6px; border-bottom: 1px solid rgba(128,128,128,.25); }
+  .row { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 4px 0; align-items: start; }
+  .tag { font-weight: 800; font-size: 12px; letter-spacing: .04em; }
+  .tag.P { color: var(--ok); } .tag.F { color: var(--bad); } .tag.W { color: var(--warn); }
+  .msg { word-break: break-word; }
+  .msg small { color: var(--dim); display: block; }
+  code { background: rgba(128,128,128,.14); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
+  .fix { color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  footer { margin-top: 30px; color: var(--dim); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<h1>项目自检</h1>
+<p class="sub">检查 <code>data.js</code> 配置、图标库、PWA 与 HTML 引用是否自洽。纯静态零依赖，可直接丢到 Pages 上跑。</p>
+
+<div class="bar" id="bar"></div>
+<div id="out"></div>
+
+<footer>
+  退出码语义：无（浏览器页面）。<code>document.title</code> 会写成 <code>SELFCHECK ok=N fail=M warn=K</code>，
+  方便用无头浏览器或 CI 抓标题做断言。<br>
+  新增了链接/图标后请回来跑一遍：<code>node -e "…"</code> 不用，直接在浏览器打开本页即可。
+</footer>
+
+<script src="data.js"></script>
+<script src="icons.js"></script>
+<script src="icons-img.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const results = [];
+  const pending = []; // 异步检查的 promise，渲染前要等它们全部落地
+  const push = (level, group, msg, detail) => results.push({ level, group, msg, detail });
+  const ok = (g, m, d) => push("P", g, m, d);
+  const bad = (g, m, d) => push("F", g, m, d);
+  const warn = (g, m, d) => push("W", g, m, d);
+
+  const norm = (h) => String(h || "").replace(/^www\./, "").toLowerCase();
+  const hostOf = (u) => { try { return new URL(u).hostname; } catch (e) { return ""; } };
+
+  /* ───────────────── 1. data.js 结构 ───────────────── */
+  const G = "配置 data.js";
+  const SITE = window.SITE;
+  if (!SITE) { bad(G, "读不到 window.SITE", "data.js 是不是没加载成功 / 语法报错？"); }
+  else {
+    ok(G, "siteName 已设置", SITE.siteName);
+    const cats = Array.isArray(SITE.categories) ? SITE.categories : [];
+    if (!cats.length) bad(G, "categories 为空");
+    else ok(G, "分类数量 " + cats.length);
+
+    const catNames = new Set();
+    const linkNames = new Set();
+    const allUrls = new Map();
+    const pySeen = new Map();
+    let linkCount = 0;
+
+    cats.forEach((cat, ci) => {
+      const where = "第 " + (ci + 1) + " 个分类「" + (cat.name || "(无名)") + "」";
+      if (!cat.name) bad(G, where + " 缺少 name");
+      else if (catNames.has(cat.name)) bad(G, "分类名重复：" + cat.name, "分类名同时是折叠状态和排序记录的 localStorage 键，重名会互相覆盖");
+      else catNames.add(cat.name);
+
+      if (!Array.isArray(cat.links)) { bad(G, where + " 的 links 不是数组"); return; }
+      if (!cat.links.length) warn(G, where + " 没有任何链接");
+
+      const inCat = new Set();
+      cat.links.forEach((link, li) => {
+        linkCount++;
+        const at = where + " 第 " + (li + 1) + " 条「" + (link.name || "(无名)") + "」";
+        if (!link.name) bad(G, at + " 缺少 name");
+        if (!link.url) bad(G, at + " 缺少 url");
+        else {
+          if (!/^https:\/\//i.test(link.url)) bad(G, at + " 的 url 不是 https", link.url);
+          if (/^http:\/\//i.test(link.url)) bad(G, at + " 用了 http://", link.url);
+          if (allUrls.has(link.url)) bad(G, "url 重复：" + link.url, "已出现在「" + allUrls.get(link.url) + "」，可考虑归到同一分类或其一用 iconAlias");
+          else allUrls.set(link.url, link.name);
+        }
+        if (link.name && inCat.has(link.name)) bad(G, at + " 与本分类内其它条目重名");
+        if (link.name) inCat.add(link.name);
+        if (link.name) linkNames.add(link.name);
+        /* py 撞车会让拼音搜索同时命中两个完全不同的站点 */
+        if (link.py) {
+          if (pySeen.has(link.py)) bad(G, "py 撞车：" + link.py, "「" + pySeen.get(link.py) + "」和「" + link.name + "」共用同一个 py，搜它会同时命中两个；py 要填站点自己的拼音缩写");
+          else pySeen.set(link.py, link.name);
+        }
+      });
+    });
+    ok(G, "链接总数 " + linkCount + "（唯一 " + allUrls.size + "）");
+  }
+
+  /* ───────────────── 2. 别名 ───────────────── */
+  const GA = "别名配置";
+  const cats2 = (SITE && SITE.categories) || [];
+  const alias = (SITE && SITE.categoryAlias) || {};
+  const catNameSet = new Set(cats2.map((c) => c.name));
+  const aliasKeys = Object.keys(alias);
+  if (!aliasKeys.length) warn(GA, "categoryAlias 是空的", "搜分类只能靠分类名本身");
+  aliasKeys.forEach((k) => {
+    if (!catNameSet.has(k)) bad(GA, "categoryAlias 指向不存在的分类：" + k, "分类改名后这里会变成孤儿键");
+  });
+  if (aliasKeys.length) ok(GA, "categoryAlias " + aliasKeys.length + " 条，全部命中真实分类");
+
+  /* ───────────────── 3. 图标库 ───────────────── */
+  const GI = "图标库";
+  const SVG = window.ICONS || {};
+  const IMG = window.ICONS_IMG || {};
+  const svgKeys = Object.keys(SVG);
+  const imgKeys = Object.keys(IMG);
+  const imgIndex = Object.create(null);
+  [SVG, IMG].forEach((src) => Object.keys(src).forEach((k) => { const b = norm(k); if (!imgIndex[b]) imgIndex[b] = src[k]; }));
+  Object.keys(alias || {}); // 保持读取顺序
+  const iconAlias = (SITE && SITE.iconAlias) || {};
+  Object.keys(iconAlias).forEach((k) => {
+    const from = norm(iconAlias[k]);
+    if (!imgIndex[from]) bad(GI, "iconAlias 的目标不在图标库里：" + iconAlias[k], "key 是 " + k);
+  });
+  Object.keys(iconAlias).forEach((k) => { const b = norm(k); if (iconAlias[k] && !imgIndex[b] && imgIndex[norm(iconAlias[k])]) imgIndex[b] = imgIndex[norm(iconAlias[k])]; });
+  if (!svgKeys.length && !imgKeys.length) bad(GI, "两个图标库都是空的", "所有站点都会退化成首字母");
+  else ok(GI, "icons.js " + svgKeys.length + " 条 / icons-img.js " + imgKeys.length + " 条");
+
+  /* data: URI 一律要 image/ 前缀，否则浏览器不认（历史踩过的坑） */
+  let badMime = 0;
+  Object.keys(IMG).forEach((k) => { if (!/^data:image\//i.test(IMG[k])) badMime++; });
+  if (badMime) bad(GI, badMime + " 条位图不是 data:image/…", "重跑 get-icons.ps1");
+  else ok(GI, "位图 MIME 全部合法（data:image/…）");
+
+  /* 覆盖率：没有本地图标的站点会退化成首字母 */
+  const hosts = new Set();
+  (SITE.categories || []).forEach((c) => (c.links || []).forEach((l) => { const h = norm(hostOf(l.url)); if (h) hosts.add(h); }));
+  const missing = [...hosts].filter((h) => !imgIndex[h]).sort();
+  const cov = Math.round(((hosts.size - missing.length) / hosts.size) * 100);
+  if (missing.length) warn(GI, "本地图标覆盖 " + cov + "%（缺 " + missing.length + " 个）", missing.join(", "));
+  else ok(GI, "本地图标覆盖 100%（" + hosts.size + " 个域名）");
+
+  /* 图标库里有、但 data.js 已经不引用的条目：白占体积 */
+  const orphanSvg = svgKeys.filter((k) => !hosts.has(norm(k)));
+  const orphanImg = imgKeys.filter((k) => !hosts.has(norm(k)) && !Object.keys(iconAlias).some((a) => norm(a) === norm(k)));
+  if (orphanSvg.length + orphanImg.length > hosts.size * 0.25 && hosts.size) {
+    warn(GI, "图标库可能有多余条目（" + (orphanSvg.length + orphanImg.length) + " 个域名已不在 data.js）",
+      "数量超过域名的 1/4 才提示；确认无用后可从 icons.js / icons-img.js 里删");
+  }
+
+  /* ───────────────── 4. PWA ───────────────── */
+  const GP = "PWA";
+  pending.push(
+    fetch("manifest.webmanifest", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
+      .then((m) => {
+        const icons = (m.icons || []).map((i) => i.src);
+        if (!icons.length) bad(GP, "manifest 没有声明任何图标", "装成 PWA 后会是默认图标");
+        else ok(GP, "manifest 解析正常，声明 " + icons.length + " 个图标");
+        return Promise.all(icons.map((src) => fetch(src, { method: "HEAD" }).then((r) => src + " " + r.status)));
+      })
+      .then((rows) => (rows || []).forEach((row) => { if (!/ 200$/.test(row)) bad(GP, "manifest 里的图标取不到：" + row); }))
+      .catch((e) => bad(GP, "manifest 检查失败", e.message))
+  );
+
+  pending.push(
+    fetch("sw.js", { cache: "no-store" })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status))))
+      .then((t) => {
+        const list = (t.match(/const CORE = \[([\s\S]*?)\]/) || [, ""])[1];
+        const files = (list.match(/"([^"]+)"/g) || []).map((s) => s.replace(/"/g, "")).filter((f) => f && f !== "./");
+        return Promise.all(files.map((f) => fetch(f, { method: "HEAD" }).then((r) => ({ f, ok: r.ok }))));
+      })
+      .then((rows) => {
+        const miss = (rows || []).filter((x) => !x.ok).map((x) => x.f);
+        if (miss.length) bad(GP, "sw.js 预热清单里有不存在的文件", miss.join(", "));
+        else ok(GP, "sw.js 预热清单 " + ((rows || []).length) + " 项全部存在");
+      })
+      .catch((e) => bad(GP, "sw.js 检查失败", e.message))
+  );
+
+  /* ───────────────── 5. HTML 引用 ───────────────── */
+  const GH = "index.html";
+  pending.push(
+    fetch("index.html", { cache: "no-store" })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status))))
+      .then((html) => {
+        const refs = [];
+        const re = /(?:src|href)="([^"#][^"]*)"/g;
+        let m;
+        while ((m = re.exec(html))) {
+          const u = m[1];
+          if (/^(https?:|data:|mailto:|javascript:|#)/i.test(u)) continue;
+          refs.push(u);
+        }
+        if (/\son(click|load|error|input|change)\s*=/i.test(html)) {
+          bad(GH, "有内联 on* 事件属性", "内联事件在严格 CSP 下会被拦，且与 addEventListener 混用难维护");
+        }
+        if (/icons-img\.js/.test(html) && !/id="icons-img-script"/.test(html)) {
+          bad(GH, 'icons-img.js 缺少 id="icons-img-script"', "异步加载时位图库到货后无法补图标，会停在首字母");
+        }
+        if (!/viewport-fit=cover/.test(html)) {
+          warn(GH, "viewport 缺 viewport-fit=cover", "iOS 上 env(safe-area-inset-*) 会恒为 0，刘海/底部横条那套让位全部失效");
+        }
+        return Promise.all(refs.map((f) => fetch(f, { method: "HEAD" }).then((r) => ({ f, ok: r.ok }))));
+      })
+      .then((rows) => {
+        const list = rows || [];
+        const miss = list.filter((x) => !x.ok).map((x) => x.f);
+        if (miss.length) bad(GH, "引用了不存在的文件", miss.join(", "));
+        else ok(GH, "本地引用 " + list.length + " 个，全部存在：" + list.map((x) => x.f).join(" "));
+      })
+      .catch((e) => bad(GH, "index.html 检查失败", e.message))
+  );
+
+  /* ───────────────── 输出 ───────────────── */
+  const order = { F: 0, W: 1, P: 2 };
+  const groups = [];
+
+  function render() {
+    results.forEach((r) => { if (groups.indexOf(r.group) < 0) groups.push(r.group); });
+    const fails = results.filter((r) => r.level === "F").length;
+    const warns = results.filter((r) => r.level === "W").length;
+    const passes = results.filter((r) => r.level === "P").length;
+    document.title = "SELFCHECK ok=" + passes + " fail=" + fails + " warn=" + warns;
+    if (document.getElementById("out").childElementCount) return; // 已渲染过
+
+    document.getElementById("bar").innerHTML =
+      '<span class="chip pass">' + passes + " 通过</span>" +
+      '<span class="chip ' + (fails ? "fail" : "pass") + '">' + fails + " 失败</span>" +
+      '<span class="chip ' + (warns ? "warn" : "pass") + '">' + warns + " 提醒</span>";
+
+    document.getElementById("out").innerHTML = groups.map((g) => {
+      const rows = results.filter((r) => r.group === g).sort((a, b) => order[a.level] - order[b.level]);
+      return "<h2>" + g + "</h2>" + rows.map((r) =>
+        '<div class="row"><span class="tag ' + r.level + '">' + r.level + '</span><span class="msg">' +
+        r.msg + (r.detail ? '<small>' + String(r.detail).replace(/</g, "&lt;") + "</small>" : "") +
+        "</span></div>").join("");
+    }).join("") || '<p class="sub">没有产生任何结果</p>';
+  }
+
+  /* 等所有异步检查（manifest / sw.js / index.html 的 fetch）都落地再出结果，
+     否则慢网络下只能看到前几组 —— 之前就是这个坑：固定 900ms 渲染，
+     fetch 稍慢一点就整组消失，看着像"没发现问题"。 */
+  Promise.all(pending).then(render, render);
+  setTimeout(render, 4000); // 兜底：某个 fetch 卡死时也要出结果
+})();
+</script>
+</body>
+</html>
