@@ -418,9 +418,15 @@ routes = [{ pattern = "favicon.yourdomain.com/*", zone_name = "yourdomain.com" }
 - `icon-*.png` / `apple-touch-icon.png`：和 favicon 同款的渐变底 + 白色字标；
 - `sw.js`：Service Worker，只在 `http(s)` 下注册（双击本地文件打开时自动跳过）。
 
-**缓存策略特意选了「网络优先」**：联网时永远拿服务器上最新的文件
-（改 `data.js`、跑完 `get-icons.ps1`、改 `styles.css`，刷新就是最新），
-只有**断网时**才退回缓存 —— 这样"改配置即生效"的玩法不会被 PWA 缓存破坏。
+**缓存策略分两类**，别混为一谈：
+
+| 资源 | 策略 | 表现 |
+| --- | --- | --- |
+| `data.js` / `app.js` / `styles.css` / `index.html` | **网络优先** | 改完 `push`，刷新就是最新（这个站的核心承诺） |
+| `icons.js` / `icons-img.js`（合计约 194KB） | **stale-while-revalidate** | 先用缓存秒开、后台悄悄更新 → **图标改动在下一次打开才生效** |
+
+图标走 SWR 是因为它占首屏 82%，每次冷启动全量重下代价太大。
+`get-icons.ps1` 跑完想立刻看到新图标，**Ctrl+F5** 强刷一次即可。
 
 安装方法：Chrome / Edge 地址栏右侧出现"安装"图标，或菜单 →「将此站点作为应用安装」；
 iOS Safari 用「分享 → 添加到主屏幕」。
