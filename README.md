@@ -76,7 +76,7 @@
 | `get-icons.ps1` | 一键补图标脚本：抓 data.js 里缺图标的站点（PowerShell，零依赖） |
 | `check-links.ps1` | 死链检测脚本：并发扫全部链接的 HTTP 状态，分类报告 |
 | `tests.html` | **自检页**：校验 data.js / 图标库 / 纯函数模块 / PWA / HTML 引用是否自洽 |
-| `.github/workflows/check.yml` | **CI**：push/PR 跑语法检查 + 30 条纯函数断言，部署后再回读线上自检页 |
+| `.github/workflows/check.yml` | **CI**：push/PR 跑语法检查 + 30 条纯函数断言，部署后对线上核心文件做冒烟检查 |
 | `.editorconfig` | 编辑器统一配置：`.ps1` 强制 UTF-8 **with BOM**（见文末《脚本编码》） |
 | `manifest.webmanifest` | PWA 清单：安装到桌面 / 主屏时的名字、图标、窗口样式 |
 | `sw.js` | Service Worker：离线兜底（网络优先，改配置立刻生效） |
@@ -178,7 +178,7 @@ window.SITE = {
 | 文件 | br | 说明 |
 |---|---|---|
 | `icons-img.js` | 153.7 KB | **异步加载，不进首屏关键路径** |
-| `icons.js` | 40.7 KB | 98 个品牌 SVG |
+| `icons.js` | 40.7 KB | 108 个品牌 SVG |
 | `app.js` | 22.9 KB | |
 | `styles.css` | 9.1 KB | |
 | `data.js` | 9.0 KB | |
@@ -409,7 +409,13 @@ routes = [{ pattern = "favicon.yourdomain.com/*", zone_name = "yourdomain.com" }
 > 1. `node --check` 扫所有 `.js`；
 > 2. 跑 30 条断言：纯函数模块 + `data.js` 静态一致性
 >    （`py` 撞车 / 重复 url / 非 https / `window.SITE` 可解析 / `categoryAlias` 孤儿键 / `iconAlias` 目标存在）；
-> 3. 部署完成后回读线上 <https://midaohang.pages.dev/tests> 的标题，`fail≠0` 就把这次发布标红。
+> 3. 部署完成后做**线上冒烟检查**：按 `sw.js` 的 CORE 预热清单逐个回读线上文件，
+>    任何一个 404 就把这次发布标红（`/tests` 自检页也一并确认可达）。
+>
+> 自检页的 `SELFCHECK ok=N fail=M warn=K` 标题是运行时 JS 写进 `document.title` 的，
+> `curl` 拿不到（只会抓到页脚说明文字和 JS 源码，解析不出数字），
+> 所以 CI 不去抓它 —— 规则校验由第 2 条覆盖；要验证运行时结果，
+> 用无头浏览器开线上 `/tests` 即可。
 >
 > 第 2 条与自检页里的 `data.js` 检查同源，作用是"**部署的是仓库内容，
 > 没人点自检页时 CI 也会看**"。

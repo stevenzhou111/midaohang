@@ -6,7 +6,7 @@
       这个站的核心玩法是随时改 data.js 就上线，缓存优先会让你改完刷新还看到旧配置。
       断网时退到缓存兜底。
 
-   2) 图标库（icons.js + icons-img.js，合计约 360KB）→ stale-while-revalidate。
+   2) 图标库（icons.js + icons-img.js，合计约 380KB 原始字节，br 后约 194KB）→ stale-while-revalidate。
       这两个文件每次打开都重新下载的话，_headers 里给的 1 小时缓存会被完全废掉，
       首屏白白多传 360KB。这里先给缓存里的（秒开），同时后台悄悄更新，
       下次打开就是新的。改图标最多延迟一次访问生效，可以接受。

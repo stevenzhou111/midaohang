@@ -714,13 +714,14 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     return chain;
   }
 
-  /* icons-img.js（150KB 位图库）到货后：重建索引 + 给还停在首字母的图标补位。
-     这个库是异步的（<link rel=preload> 让它和 CSS 并行下载，但不挡首屏渲染），
-     所以首屏可能先以字母呈现，几十到几百毫秒后自动换成真实 favicon。 */
+  /* 位图库"尘埃落定"（到货或失败）后统一走这里，幂等、可重复进入：
+     到货 → 重建索引；失败 → 沿用启动时建好的索引（icons.js 的 SVG 仍在）。
+     共同的下一步是把还停在首字母的挂载点重跑一遍 —— 此时 bitmapsPending
+     已解除，代理 / 远程兜底才会被放行。失败路径如果只 flushIcons()，
+     队列早已排空、什么都不会发生，已渲染的站点会永远停在首字母。 */
   function refreshLocalIcons() {
-    if (!window.ICONS_IMG) return;
     bitmapsPending = false;
-    localIconFor = createLocalIconLookup(makeIconIndex());
+    if (window.ICONS_IMG) localIconFor = createLocalIconLookup(makeIconIndex());
 
     /* 逐个补：已经有 SVG 或已经有 <img> 的不动，只救还空着的；
        有加载链在飞的也跳过（busyWraps）——那条链结束时会自己按新状态补跑 */
@@ -744,16 +745,26 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
       bitmapsPending = false;
       return;
     }
-    if (window.ICONS_IMG) refreshLocalIcons();
-    else {
-      s.addEventListener("load", refreshLocalIcons);
-      /* 加载失败（离线 / 404）时 load 永远不来，必须把"还在等"这个状态解掉，
-         否则远程兜底会被永久压制，图标只剩首字母 */
-      s.addEventListener("error", () => {
-        bitmapsPending = false;
-        flushIcons();
-      });
+    if (window.ICONS_IMG) {
+      refreshLocalIcons();
+      return;
     }
+    /* 到货和失败都必须把"还在等"解掉，否则远程兜底被永久压制，图标只剩首字母。
+       settledByEvent 只用来挡事件重复触发，不挡超时：慢网络下超时先按失败放行
+       远程兜底，位图库之后真到货时仍会重建索引，把还没补上的站点换成本地图标。 */
+    let settledByEvent = false;
+    s.addEventListener("load", () => {
+      if (!settledByEvent) { settledByEvent = true; refreshLocalIcons(); }
+    });
+    s.addEventListener("error", () => {
+      if (!settledByEvent) { settledByEvent = true; refreshLocalIcons(); }
+    });
+    /* 竞态兜底：404 的 error 事件可能在本模块执行前就已触发完
+       （小文件的失败响应比 app.js 的下载执行还快），load/error 从此收不到。
+       超时 10s 强制解除等待；refreshLocalIcons 幂等，事件之后再来一遍也无害。 */
+    setTimeout(() => {
+      if (!settledByEvent) refreshLocalIcons();
+    }, 10000);
   }
 
   /* ───────────────────────── 点击记录与常用站点 ───────────────────────── */
@@ -1739,6 +1750,11 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
   });
 
   input.addEventListener("keydown", (ev) => {
+    /* 中文输入法组字期间（候选词还没上屏），Enter 是"确认候选"、Esc 是"取消组字"，
+       都不能被当成搜索快捷键：macOS 上确认候选的 Enter 带着 isComposing: true，
+       不支持该字段的旧浏览器用 keyCode 229（composition 专用值）识别。
+       没有这行守卫，输拼音确认候选词的瞬间就会被当成"打开高亮建议"直接跳走。 */
+    if (ev.isComposing || ev.keyCode === 229) return;
     const open = !suggestions.hidden;
 
     if (ev.key === "ArrowDown" || (ev.key === "Tab" && open)) {

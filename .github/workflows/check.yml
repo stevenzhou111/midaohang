@@ -1,0 +1,190 @@
+# push / PR 时的前置检查。这个项目零构建，Pages 只负责把仓库原样发布，
+# 所以"发布之前有没有坏"全靠这里——CI 是这条链路上唯一能自动拦住错误的一环。
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 语法 + 纯函数断言
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 1) 所有 JS 过一遍语法（app.js 是 ES Module，node --check 能解析 import）。
+      #    用 -z / read -d '' 走 NUL 分隔，文件名带空格也不会碎。
+      - name: node --check
+        run: |
+          set -e
+          n=0
+          while IFS= read -r -d '' f; do
+            node --check "$f"
+            n=$((n+1))
+          done < <(git ls-files -z '*.js')
+          echo "已检查 $n 个 JS 文件"
+
+      # 2) 纯函数模块的真断言 —— 直接 import 线上真正在跑的那三个模块。
+      #    这段逻辑与 tests.html 里的"纯函数模块"一组同源，零依赖。
+      - name: 纯函数断言
+        run: |
+          cat > /tmp/assert.mjs <<'EOF'
+          import { foldText, tokenize, subseqPenalty, scoreToken } from './js/text.js';
+          import { validateConfig, normalizeSettings, safeUrl } from './js/config.js';
+          import { buildIconIndex, createLocalIconLookup } from './js/icons-index.js';
+          import { readFileSync } from 'node:fs';
+
+          let bad = 0;
+          const is = (name, got, want) => {
+            const g = JSON.stringify(got), w = JSON.stringify(want);
+            if (g !== w) { console.error(`FAIL ${name}\n  期望 ${w}\n  实际 ${g}`); bad++; }
+            else console.log(`ok   ${name}`);
+          };
+          const yes = (name, cond, extra) => {
+            if (!cond) { console.error(`FAIL ${name}${extra ? '\n  ' + extra : ''}`); bad++; }
+            else console.log(`ok   ${name}`);
+          };
+
+          /* text.js */
+          is('tokenize 切分与去空白', tokenize('  GitHub  版本 '), ['github', '版本']);
+          is('tokenize 纯空白 -> []', tokenize('　  '), []);
+          is('foldText 全角 -> 半角', foldText('ＧＩＴＨＵＢ'), 'github');
+          is('subseqPenalty 不匹配', subseqPenalty('github', 'zzz'), -1);
+          yes('subseqPenalty 子序列可匹配', subseqPenalty('github', 'gthb') >= 0);
+          const hay = { name: 'github', py: 'gh', pyFull: 'github', desc: 'code', url: 'https://github.com',
+                        cat: '常用', catPy: 'cy', catPyFull: 'changyong' };
+          yes('scoreToken: 命中站点名 > 命中分类',
+              scoreToken(hay, 'github') > scoreToken(hay, 'changyong'),
+              `${scoreToken(hay, 'github')} vs ${scoreToken(hay, 'changyong')}`);
+          is('scoreToken: 不命中 -> -1', scoreToken(hay, 'zzzz'), -1);
+          is('scoreToken: 空 token -> -1', scoreToken(hay, ''), -1);
+
+          /* config.js */
+          const dirty = validateConfig({ categories: [
+            { name: 'A', links: [ { name: 'ok', url: 'https://a.com' },
+                                  { name: 'xss', url: 'javascript:alert(1)' },
+                                  { url: 'https://b.com' }, { name: 'nourl' } ] },
+            'not-an-object' ] }, null);
+          is('validateConfig 判致命 = 0', dirty.fatal.length, 0);
+          is('validateConfig 只救下合法条目', dirty.categories[0].links.length, 1);
+          yes('validateConfig 记录了问题清单', dirty.issues.length >= 3, dirty.issues.join(' | '));
+          is('validateConfig 忽略坏分类', dirty.categories.length, 1);
+          is('safeUrl 挡 javascript:', safeUrl('javascript:alert(1)'), '');
+          is('safeUrl 放行 https', safeUrl('https://ok.com'), 'https://ok.com');
+          const s = normalizeSettings({ recentCount: 1.5, showRecent: 'yes', linkOrder: '乱写', faviconProxy: 42 });
+          is('normalizeSettings recentCount 取整', s.recentCount, 1);
+          is('normalizeSettings showRecent 归一', s.showRecent, true);
+          is('normalizeSettings linkOrder 回落', s.linkOrder, 'config');
+          is('normalizeSettings faviconProxy 归一', s.faviconProxy, '');
+          is('normalizeSettings recentCount 负数夹到 0', normalizeSettings({ recentCount: -1 }).recentCount, 0);
+          is('normalizeSettings recentCount 上限 50', normalizeSettings({ recentCount: 999 }).recentCount, 50);
+
+          /* icons-index.js */
+          const idx = buildIconIndex({ 'a.com': '<svg/>' }, { 'b.com': 'data:image/png;base64,AA' },
+                                     { 'new-a.com': 'a.com' });
+          const find = createLocalIconLookup(idx);
+          is('图标索引 www 前缀兼容', find('www.a.com'), '<svg/>');
+          is('图标索引 位图可查', find('b.com'), 'data:image/png;base64,AA');
+          is('图标索引 iconAlias 生效', find('new-a.com'), '<svg/>');
+          is('图标索引 未命中 -> 空串', find('nope.com'), '');
+
+          /* data.js 的静态一致性：py 撞车 / 重复 url / 非 https / 别名孤儿
+             （tests.html 的浏览器版检查同一批规则，这里再兜一次，
+               因为 Pages 部署的是仓库内容，CI 不跑就没人看） */
+          const src = readFileSync('data.js', 'utf8');
+          const py = [...src.matchAll(/py:\s*"([a-z0-9]+)"/g)].map(m => m[1]);
+          const dupPy = py.filter((v, i) => py.indexOf(v) !== i);
+          yes('data.js: py 无撞车', dupPy.length === 0, [...new Set(dupPy)].join(', '));
+          const urls = [...src.matchAll(/url:\s*"(https?:\/\/[^"]+)"/g)].map(m => m[1]);
+          const dupUrl = urls.filter((v, i) => urls.indexOf(v) !== i);
+          yes('data.js: url 无重复', dupUrl.length === 0, [...new Set(dupUrl)].join(', '));
+          yes('data.js: 全部 https', !/url:\s*"http:\/\//.test(src));
+
+          /* 别名孤儿检查不用正则数缩进——数不准（分类名是 6 空格缩进）也数不全
+             （iconAlias 的键不是分类，混进来全是误报）。直接把三个文件在 Node 里
+             执行一遍，对真实对象做校验。 */
+          const win = {};
+          new Function('window', src)(win);
+          yes('data.js: 能解析出 window.SITE', !!win.SITE);
+          if (win.SITE) {
+            const catNames = new Set((win.SITE.categories || []).map((c) => c && c.name));
+            const orphanAlias = Object.keys(win.SITE.categoryAlias || {})
+              .filter((k) => !catNames.has(k));
+            yes('data.js: categoryAlias 无孤儿键', orphanAlias.length === 0,
+                orphanAlias.length ? '孤儿：' + orphanAlias.join(', ') : '');
+
+            new Function('window', readFileSync('icons.js', 'utf8'))(win);
+            new Function('window', readFileSync('icons-img.js', 'utf8'))(win);
+            const bare = (h) => String(h || '').replace(/^www\./, '').toLowerCase();
+            const iconKeys = new Set(
+              [...Object.keys(win.ICONS || {}), ...Object.keys(win.ICONS_IMG || {})].map(bare)
+            );
+            const badTargets = Object.entries(win.SITE.iconAlias || {})
+              .filter(([, from]) => !iconKeys.has(bare(from)))
+              .map(([k, from]) => k + ' -> ' + from);
+            yes('data.js: iconAlias 目标都在图标库里', badTargets.length === 0, badTargets.join(', '));
+          }
+
+          if (bad) { console.error(`\n${bad} 条断言失败`); process.exit(1); }
+          console.log('\n全部断言通过');
+          EOF
+          cp /tmp/assert.mjs ./assert.tmp.mjs
+          node ./assert.tmp.mjs
+          rm -f ./assert.tmp.mjs
+
+  # Pages 没有构建步骤，发布完只能靠人点开自检页确认；这里在部署后做一次冒烟检查：
+  # 按 sw.js 的 CORE 预热清单逐个回读线上文件，任何一个 404 都说明这次发布缺了东西。
+  # 注意：tests.html 的 SELFCHECK 标题是运行时 JS 写进 document.title 的，curl 拿不到
+  #（实测只会抓到页脚说明文字和 JS 源码，解析不出数字，每次都误判失败）——
+  # 所以这里只验证"文件都在线上"这个 curl 能真正验证的事实；规则校验已由 verify 覆盖。
+  online:
+    name: 线上部署冒烟检查
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 等待部署并检查核心文件
+        env:
+          # 站点不在默认地址时，在仓库 Settings → Variables 配置 SITE_URL 覆盖（填站点根地址）
+          SITE_URL: ${{ vars.SITE_URL || 'https://midaohang.pages.dev' }}
+        run: |
+          set -e
+          base="${SITE_URL%/}"
+          check() { curl -sSfL -o /dev/null --max-time 20 "$1"; }
+
+          up=0
+          for i in $(seq 1 20); do
+            if check "$base/"; then up=1; break; fi
+            echo "[$i] 还没上线（Pages 构建中），20s 后重试"
+            sleep 20
+          done
+          if [ "$up" != "1" ]; then
+            echo "等了约 6 分钟仍未上线，视为部署失败"
+            exit 1
+          fi
+
+          # 运行期文件清单直接从 sw.js 的 CORE 推导（与 deploy.ps1 同源），不手工维护；
+          # tr -d '\r' 保证有人以 CRLF 提交 sw.js 时文件名也不会带上回车
+          files=$(sed -n '/const CORE = \[/,/\];/p' sw.js | grep -oE '"[^"]+"' | tr -d '"\r' | grep -v '^\./$')
+          fail=0
+          for f in $files; do
+            if check "$base/$f"; then echo "ok   $f"; else echo "FAIL $f"; fail=1; fi
+          done
+          # 自检页不被 index.html 引用，单独确认可达
+          if check "$base/tests"; then echo "ok   tests.html"; else echo "FAIL tests.html"; fail=1; fi
+          exit $fail
