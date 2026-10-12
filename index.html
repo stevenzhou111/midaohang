@@ -61,10 +61,25 @@
     <!-- ─────────── Hero ─────────── -->
     <header class="hero">
       <div class="hero-tools">
+        <button id="add-toggle" class="icon-btn" type="button" aria-label="添加链接" title="添加链接" aria-expanded="false" aria-controls="add-pop"></button>
         <button id="theme-toggle" class="icon-btn" type="button" aria-label="切换深浅色主题" title="切换主题"></button>
         <button id="palette-toggle" class="icon-btn" type="button" aria-label="选择配色" title="配色主题" aria-expanded="false" aria-controls="palette-pop"></button>
         <button id="view-toggle" class="icon-btn" type="button" aria-label="切换网格 / 列表视图" title="切换视图"></button>
         <div class="palette-pop" id="palette-pop" role="group" aria-label="配色选择" hidden></div>
+        <form class="add-pop" id="add-pop" hidden>
+          <p class="add-title">添加到「我的收藏」</p>
+          <label class="add-field">名称<input id="add-name" type="text" maxlength="40" autocomplete="off" required></label>
+          <label class="add-field">网址<input id="add-url" type="url" inputmode="url" placeholder="https://" autocomplete="off" required></label>
+          <label class="add-field">备注<input id="add-desc" type="text" maxlength="40" autocomplete="off"></label>
+          <p class="add-error" id="add-error" role="alert" hidden></p>
+          <div class="add-actions">
+            <button type="submit" class="add-primary">添加</button>
+            <button type="button" id="add-import" class="add-secondary">导入书签</button>
+            <button type="button" id="add-export" class="add-secondary">导出</button>
+          </div>
+          <p class="add-note">只存在这台浏览器里，不改配置文件。换设备前先导出。</p>
+          <input id="add-file" type="file" accept=".html,.htm,text/html" hidden>
+        </form>
       </div>
 
       <div class="hero-inner">

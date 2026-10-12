@@ -190,6 +190,11 @@ body {
   border-radius: 50%;
   filter: blur(76px);
   opacity: var(--blob-opacity);
+  /* 宽屏放大靠这个变量，不能直接写 transform：
+     @keyframes float 每一帧都声明了 transform，动画的优先级高于普通作者声明，
+     直接写 .blob{transform:scale(1.5)} 会被逐帧覆盖、永远不生效。
+     改成让动画自己读 --blob-scale，宽屏只需改这一个变量。 */
+  --blob-scale: 1;
   animation: float 26s ease-in-out infinite;
   will-change: transform;
 }
@@ -243,13 +248,13 @@ body {
 @keyframes float {
   0%,
   100% {
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0) scale(var(--blob-scale, 1));
   }
   33% {
-    transform: translate3d(48px, -36px, 0) scale(1.09);
+    transform: translate3d(48px, -36px, 0) calc(var(--blob-scale, 1) * 1.09);
   }
   66% {
-    transform: translate3d(-36px, 30px, 0) scale(0.94);
+    transform: translate3d(-36px, 30px, 0) calc(var(--blob-scale, 1) * 0.94);
   }
 }
 
@@ -307,7 +312,12 @@ body {
   position: absolute;
   top: 0;
   right: 0;
-  z-index: 3;
+  /* z-index 必须高于 .search-wrap 的 30。
+     .hero-tools 是定位元素 + z-index≠auto，会建立堆叠上下文，
+     里面的 .palette-pop 写 z-index:40 也只能在**这个上下文内部**排序；
+     在根上下文里真正参与比较的是这里的 3 对 30 —— 原来写 3 时
+     配色面板会被搜索框盖住（站点名一长或视口落在 641~1000px 就很明显）。 */
+  z-index: 31;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -318,9 +328,9 @@ body {
   position: absolute;
   top: 50px;
   right: 0;
-  /* 必须高于 .search-wrap 的 z-index:30，否则站点名一长，
-     搜索框会反过来盖住配色面板 */
-  z-index: 40;
+  /* 只需压住 .hero-tools 内部的兄弟节点；跨出该上下文的排序
+     由上面 .hero-tools 的 z-index:31 负责 */
+  z-index: 1;
   display: flex;
   gap: 9px;
   padding: 11px 13px;
@@ -355,6 +365,118 @@ body {
 .swatch.is-active {
   border-color: var(--text);
   transform: scale(1.12);
+}
+
+/* 添加链接弹层：复用配色弹层的毛玻璃，但内容是表单，所以左对齐、定宽 */
+.add-pop {
+  position: absolute;
+  top: 50px;
+  right: 0;
+  z-index: 2;
+  width: min(320px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  text-align: left;
+  border-radius: 15px;
+  border: 1px solid var(--border);
+  background: var(--glass-strong);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-hover);
+}
+
+.add-title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.add-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.add-field input {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--glass);
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.add-field input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.add-error {
+  margin: 0;
+  font-size: 12px;
+  color: #be123c;
+}
+
+html[data-theme="dark"] .add-error {
+  color: #fda4af;
+}
+
+.add-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.add-actions button {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--glass);
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.add-actions button:hover {
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
+}
+
+.add-primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+
+.add-primary:hover {
+  color: #fff;
+}
+
+.add-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.pill-remove {
+  margin-left: 2px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pill-remove:hover {
+  color: #be123c;
 }
 
 .hero-inner {
@@ -633,7 +755,10 @@ body {
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.side-item:hover {
+/* :hover 必须压过下面的 .side-item.is-dimmed（同权重时源码在后者之后会赢），
+   否则悬停"无结果"分类时背景变了、文字色却卡在 --muted，hover 反馈只剩一半 */
+.side-item:hover,
+.side-item:focus-visible {
   background: var(--hover);
   color: var(--text);
 }
@@ -711,8 +836,10 @@ body {
   box-shadow: var(--shadow-hover), inset 0 1px 0 var(--inset-hi);
 }
 
+/* 原来下面还有一条独立的 .panel { scroll-margin-top: 24px; animation: … }，
+   选择器和上面完全相同、权重也一样，等于把同一个块拆成两半：
+   改属性时只改到其中一半就会静默失效。合并成一条。 */
 .panel {
-  scroll-margin-top: 24px;
   animation: panel-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
   /* 曾经试过 content-visibility: auto + contain-intrinsic-size 跳过视口外渲染，
      但首屏时未渲染过的面板会按 320px 占位高度参与位置计算，
@@ -1061,11 +1188,6 @@ html[data-view="list"] .pill {
   border-color: var(--border);
 }
 
-html[data-view="list"] .pill:hover,
-html[data-view="list"] .pill:focus-visible {
-  background: var(--hover);
-}
-
 html[data-view="list"] .pill-arrow {
   opacity: 0.75;
   transform: none;
@@ -1117,7 +1239,6 @@ html[data-view="list"] .pill-arrow {
 }
 
 .sort-tip button {
-  margin-left: auto;
   border: 1px solid var(--border);
   background: var(--glass);
   color: var(--muted);
@@ -1130,6 +1251,14 @@ html[data-view="list"] .pill-arrow {
 .sort-tip button:hover {
   color: var(--accent-ink);
   border-color: var(--accent-ink);
+}
+
+/* 两个按钮靠右成组：撤销在前，重置在后；窄屏上整组换行，不跟说明文字挤在一行 */
+.sort-tip-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
 }
 
 /* ─────────────── 搜索建议下拉 ─────────────── */
@@ -1249,6 +1378,9 @@ mark {
   color: inherit;
   border-radius: 4px;
   padding: 0 2px;
+  /* 和上面的 background 一样双写：不支持 color-mix() 的浏览器会在解析期
+     丢弃下面这条，退回上面那个半透明靛蓝描边，不会整个描边消失 */
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
@@ -1394,15 +1526,19 @@ mark {
   }
 
   /* 配色弹层原本 absolute 定位在右上角，≤414px 时会压住站点标题 <h1>。
-     这里让工具组回到正常流里、独占一行，配色面板不再叠在标题上。 */
+     这里让工具组回到正常流里、独占一行，配色面板不再叠在标题上。
+     注意 .hero-tools 不能写成 static：它是 .palette-pop（position:absolute）
+     的包含块，一旦变 static，包含块就上溯到 .hero，下面 top 的基准也变了，
+     面板反而会盖回标题上。改成 relative 既留在正常流里、又保住包含块。 */
   .hero-tools {
-    position: static;
+    position: relative;
     justify-content: flex-end;
     margin-bottom: 10px;
   }
 
   .palette-pop {
-    top: 48px;
+    top: 50px;
+    right: 0;
   }
 
   /* 性能：小屏统一减弱模糊层数，避免大量 backdrop-filter 掉帧耗电 */
@@ -1442,9 +1578,8 @@ mark {
     padding: 8px 6px;
   }
 
-  .side-count {
-    display: none;
-  }
+  /* .side-count { display: none } 已在 max-width:1000px 那段写过，
+     640px 断点被它完全包含，重复声明只会让人以为两处要同步维护 */
 
   .brand-mark {
     width: 54px;
@@ -1532,7 +1667,7 @@ mark {
     font-size: 17px;
   }
   .blob {
-    transform: scale(1.5);
+    --blob-scale: 1.5;
   }
 }
 @media (min-width: 2400px) {
@@ -1543,13 +1678,20 @@ mark {
     font-size: 19px;
   }
   .blob {
-    transform: scale(2);
+    --blob-scale: 2;
   }
 }
 
 /* 打印：默认会把深色光斑 + 玻璃拟态 + 渐变透明标题一起打出来 */
 @media print {
-  :root {
+  /* 这里必须把 html[data-theme="dark"] 和 html[data-accent] 一起带上。
+     只写 :root 的话权重只有 (0,1,0)，而上面 html[data-theme="dark"] 是 (0,1,1)，
+     深色主题用户打印时 --text 仍是浅色、--glass 仍是半透明深色，
+     浏览器默认不打印背景 → 白底浅字，整页几乎不可读。
+     加 data-accent 是因为配色块权重更高（0,2,1 / 0,2,0），同理会盖回来。 */
+  :root,
+  html[data-theme],
+  html[data-accent] {
     --bg: #fff;
     --text: #000;
     --muted: #333;

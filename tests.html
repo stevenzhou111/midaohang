@@ -38,7 +38,7 @@
 <footer>
   退出码语义：无（浏览器页面）。<code>document.title</code> 会写成 <code>SELFCHECK ok=N fail=M warn=K</code>，
   方便用无头浏览器或 CI 抓标题做断言。<br>
-  新增了链接/图标后请回来跑一遍：<code>node -e "…"</code> 不用，直接在浏览器打开本页即可。
+  新增了链接/图标后请回来跑一遍：直接在浏览器打开本页即可（需通过 http(s) 访问，不能双击本地文件，原因见下）。
 </footer>
 
 <script>
@@ -118,7 +118,10 @@
       if (s.showRecent !== true) bad(GM, 'showRecent:"yes" 应归一化为 true', String(s.showRecent));
       if (s.linkOrder !== "config") bad(GM, "linkOrder 非法值应回落 config", s.linkOrder);
       if (s.faviconProxy !== "") bad(GM, "faviconProxy 非字符串应归一为空串", String(s.faviconProxy));
-      if (s.recentCount < 0 || s.recentCount > 50) bad(GM, "recentCount 未夹逼到 0~50");
+      /* 边界值：1.5 那条只验了"取整"，负数/超上限才是真正测夹逼的用例 */
+      if (config.normalizeSettings({ recentCount: -1 }).recentCount !== 0) bad(GM, "recentCount 负数应夹到 0");
+      if (config.normalizeSettings({ recentCount: 999 }).recentCount !== 50) bad(GM, "recentCount 超上限应夹到 50");
+      if (config.normalizeSettings({ recentCount: "abc" }).recentCount !== 8) bad(GM, "recentCount 非法值应回落默认 8");
 
       if (config.safeUrl("javascript:alert(1)") !== "") bad(GM, "safeUrl 竟然放行了 javascript:");
       if (config.safeUrl("https://ok.com") !== "https://ok.com") bad(GM, "safeUrl 误伤了正常 https 链接");
@@ -137,20 +140,37 @@
   /* ───────────────── 1. data.js 结构 ───────────────── */
   const G = "配置 data.js";
   const SITE = window.SITE;
+  /* SITE 可能是 undefined（data.js 没加载 / 语法报错），categories 也可能不是数组
+     —— js/config.js 把这两种都判为致命错误，是真实场景。本页存在的意义就是在
+     data.js 坏掉时还能报出原因，所以下面每一处取 SITE 都必须扛得住这两种脏数据，
+     否则一个未捕获异常就让整页空白，连报错都显示不出来。 */
+  const cats = SITE && Array.isArray(SITE.categories) ? SITE.categories : [];
+
   if (!SITE) { bad(G, "读不到 window.SITE", "data.js 是不是没加载成功 / 语法报错？"); }
+  else if (!Array.isArray(SITE.categories)) {
+    bad(G, "window.SITE.categories 不是数组", "当前类型是 " + typeof SITE.categories);
+  }
   else {
     ok(G, "siteName 已设置", SITE.siteName);
-    const cats = Array.isArray(SITE.categories) ? SITE.categories : [];
     if (!cats.length) bad(G, "categories 为空");
     else ok(G, "分类数量 " + cats.length);
 
     const catNames = new Set();
-    const linkNames = new Set();
+    /* 跨分类的链接重名 → 搜索和"常用站点"按名字展示时会撞车，
+       排序记录（nav:link-order:<分类名>）是按分类分键的所以不冲突。
+       之前这里只建了 Set 从没比对过，等于这条规则从未真正生效。 */
+    const linkNames = new Map();
     const allUrls = new Map();
     const pySeen = new Map();
     let linkCount = 0;
 
     cats.forEach((cat, ci) => {
+      /* 分类项本身可能是 null / 字符串这类脏数据（validateConfig 会跳过并报 issue，
+         这里也要跳过而不是跟着崩，否则后面所有检查都跑不到） */
+      if (!cat || typeof cat !== "object") {
+        bad(G, "第 " + (ci + 1) + " 个分类不是对象", "app.js 会跳过它");
+        return;
+      }
       const where = "第 " + (ci + 1) + " 个分类「" + (cat.name || "(无名)") + "」";
       if (!cat.name) bad(G, where + " 缺少 name");
       else if (catNames.has(cat.name)) bad(G, "分类名重复：" + cat.name, "分类名同时是折叠状态和排序记录的 localStorage 键，重名会互相覆盖");
@@ -161,19 +181,30 @@
 
       const inCat = new Set();
       cat.links.forEach((link, li) => {
+        if (!link || typeof link !== "object") {
+          bad(G, where + " 第 " + (li + 1) + " 条不是对象");
+          return;
+        }
         linkCount++;
         const at = where + " 第 " + (li + 1) + " 条「" + (link.name || "(无名)") + "」";
         if (!link.name) bad(G, at + " 缺少 name");
         if (!link.url) bad(G, at + " 缺少 url");
         else {
-          if (!/^https:\/\//i.test(link.url)) bad(G, at + " 的 url 不是 https", link.url);
-          if (/^http:\/\//i.test(link.url)) bad(G, at + " 用了 http://", link.url);
+          /* app.js 的 safeUrl 只放行 http(s)，本站全量走 https（Pages 也是 https）。
+             这里只判一次 http:// —— 之前"不是 https"和"用了 http"两条规则重叠，
+             同一个 http:// 地址会被报两次失败。 */
+          if (/^http:\/\//i.test(link.url)) bad(G, at + " 用了 http://", link.url + "（改成 https://）");
+          else if (!/^https:\/\//i.test(link.url)) bad(G, at + " 的 url 不是 http(s)", link.url);
           if (allUrls.has(link.url)) bad(G, "url 重复：" + link.url, "已出现在「" + allUrls.get(link.url) + "」，可考虑归到同一分类或其一用 iconAlias");
           else allUrls.set(link.url, link.name);
         }
         if (link.name && inCat.has(link.name)) bad(G, at + " 与本分类内其它条目重名");
         if (link.name) inCat.add(link.name);
-        if (link.name) linkNames.add(link.name);
+        if (link.name) {
+          if (linkNames.has(link.name)) {
+            bad(G, "链接名跨分类重复：" + link.name, "同时出现在「" + linkNames.get(link.name) + "」和「" + (cat.name || "(无名)") + "」");
+          } else linkNames.set(link.name, cat.name || "(无名)");
+        }
         /* py 撞车会让拼音搜索同时命中两个完全不同的站点 */
         if (link.py) {
           if (pySeen.has(link.py)) bad(G, "py 撞车：" + link.py, "「" + pySeen.get(link.py) + "」和「" + link.name + "」共用同一个 py，搜它会同时命中两个；py 要填站点自己的拼音缩写");
@@ -186,9 +217,9 @@
 
   /* ───────────────── 2. 别名 ───────────────── */
   const GA = "别名配置";
-  const cats2 = (SITE && SITE.categories) || [];
+  const cats2 = cats;
   const alias = (SITE && SITE.categoryAlias) || {};
-  const catNameSet = new Set(cats2.map((c) => c.name));
+  const catNameSet = new Set(cats2.filter((c) => c && typeof c === "object").map((c) => c.name));
   const aliasKeys = Object.keys(alias);
   if (!aliasKeys.length) warn(GA, "categoryAlias 是空的", "搜分类只能靠分类名本身");
   aliasKeys.forEach((k) => {
@@ -214,23 +245,43 @@
   if (!svgKeys.length && !imgKeys.length) bad(GI, "两个图标库都是空的", "所有站点都会退化成首字母");
   else ok(GI, "icons.js " + svgKeys.length + " 条 / icons-img.js " + imgKeys.length + " 条");
 
-  /* data: URI 一律要 image/ 前缀，否则浏览器不认（历史踩过的坑） */
+  /* data: URI 一律要 image/ 前缀，否则浏览器不认（历史踩过的坑）。
+     注意 app.js 载入时会自动把 data:png / data:svg 补成 data:image/…，
+     所以这类脏数据不会白屏，只是白占体积 —— 提示而不算失败。 */
   let badMime = 0;
   Object.keys(IMG).forEach((k) => { if (!/^data:image\//i.test(IMG[k])) badMime++; });
-  if (badMime) bad(GI, badMime + " 条位图不是 data:image/…", "重跑 get-icons.ps1");
+  if (badMime) warn(GI, badMime + " 条位图不是 data:image/…", "app.js 会自动补全前缀，功能不受影响；重跑 get-icons.ps1 可清理干净");
   else ok(GI, "位图 MIME 全部合法（data:image/…）");
 
   /* 覆盖率：没有本地图标的站点会退化成首字母 */
   const hosts = new Set();
-  (SITE.categories || []).forEach((c) => (c.links || []).forEach((l) => { const h = norm(hostOf(l.url)); if (h) hosts.add(h); }));
+  cats.forEach((c) => (c && Array.isArray(c.links) ? c.links : []).forEach((l) => {
+    const h = norm(l && l.url ? hostOf(l.url) : "");
+    if (h) hosts.add(h);
+  }));
   const missing = [...hosts].filter((h) => !imgIndex[h]).sort();
-  const cov = Math.round(((hosts.size - missing.length) / hosts.size) * 100);
-  if (missing.length) warn(GI, "本地图标覆盖 " + cov + "%（缺 " + missing.length + " 个）", missing.join(", "));
-  else ok(GI, "本地图标覆盖 100%（" + hosts.size + " 个域名）");
+  if (!hosts.size) {
+    /* data.js 坏了导致一个域名都取不到：这时覆盖率算出来是 NaN，
+       打印成"100%（0 个域名）"会给人一切正常的错觉。 */
+    warn(GI, "取不到任何域名，跳过图标覆盖率检查", "通常是上面的 data.js 检查已经失败了");
+  } else {
+    const cov = Math.round(((hosts.size - missing.length) / hosts.size) * 100);
+    if (missing.length) warn(GI, "本地图标覆盖 " + cov + "%（缺 " + missing.length + " 个）", missing.join(", "));
+    else ok(GI, "本地图标覆盖 100%（" + hosts.size + " 个域名）");
+  }
 
   /* 图标库里有、但 data.js 已经不引用的条目：白占体积 */
-  const orphanSvg = svgKeys.filter((k) => !hosts.has(norm(k)));
-  const orphanImg = imgKeys.filter((k) => !hosts.has(norm(k)) && !Object.keys(iconAlias).some((a) => norm(a) === norm(k)));
+  /* 两侧口径必须一致，且 alias 的**目标值**也要算"在用"：
+     iconAlias 把新域名（data.js 里真正写的 url，如 kimi.com）
+     接到图标库里的老 key（如 kimi.moonshot.cn）上。老 key 不会出现在
+     hosts 里，但图标确实通过 alias 被用掉了 —— 不排除就会把
+     claude.ai / kimi.moonshot.cn / v0.dev 误判成白占体积的多余条目。 */
+  const aliasInUse = (k) => {
+    const n = norm(k);
+    return Object.keys(iconAlias).some((a) => norm(a) === n || norm(iconAlias[a]) === n);
+  };
+  const orphanSvg = svgKeys.filter((k) => !hosts.has(norm(k)) && !aliasInUse(k));
+  const orphanImg = imgKeys.filter((k) => !hosts.has(norm(k)) && !aliasInUse(k));
   if (orphanSvg.length + orphanImg.length > hosts.size * 0.25 && hosts.size) {
     warn(GI, "图标库可能有多余条目（" + (orphanSvg.length + orphanImg.length) + " 个域名已不在 data.js）",
       "数量超过域名的 1/4 才提示；确认无用后可从 icons.js / icons-img.js 里删");

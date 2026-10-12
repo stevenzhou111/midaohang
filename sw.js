@@ -14,7 +14,7 @@
    注意：修改本文件后，浏览器要等 service worker 更新（Ctrl+F5 或关掉标签页重开）
    才生效；改了 sw.js 本身请把下面 CACHE 的版本号 +1，旧缓存会被自动清掉。 */
 
-const CACHE = "nav-cache-v3";
+const CACHE = "nav-cache-v4";
 
 /* app.js 自己也会写缓存（远程 favicon 抓下来的位图），activate 时必须留着它，
    否则每次 SW 升版都会连带清空，用户要重新抓一遍图标 */
@@ -28,6 +28,9 @@ const CORE = [
   "data.js",
   "icons.js",
   "icons-img.js",
+  "js/text.js",
+  "js/config.js",
+  "js/icons-index.js",
   "manifest.webmanifest",
   "icon-192.png",
   "icon-512.png",

@@ -17,7 +17,7 @@
  *   recentCount    常用卡片最多显示几条
  *   faviconProxy   图标代理地址，留空 "" 则只走 Google / DuckDuckGo 直连（当前默认）。
  *                  国内建议部署 favicon-worker 后填它的地址
- *                  （如 "https://nav-favicon.<账号>.workers.dev/"），详见 README《图标在国内全挂怎么办》。
+ *                  （如 "https://nav-favicon.<账号>.workers.dev/"），详见 README《没有本地图标时：部署 favicon-worker（可选）》。
  *
  * ── categories ──────────────────────────────────────
  *   name     分类名（必填）
@@ -74,6 +74,8 @@ window.SITE = {
     "在线课程": "zaixian kecheng course mooc",
     "学术与阅读": "xueshu paper academic reading",
     "旅行出行": "lvxing travel trip map",
+    "地图与本地生活": "ditu map local shenghuo",
+    "新闻与阅读": "xinwen news reading",
     "购物比价": "gouwu shopping price",
     "在线工具": "gongju tools utility",
     "游戏娱乐": "youxi games entertainment",
@@ -313,6 +315,40 @@ window.SITE = {
         { name: "同程旅行", url: "https://www.ly.com", desc: "机票门票", py: "tclx", pyFull: "tongcheng" },
         { name: "Airbnb", url: "https://www.airbnb.com", desc: "民宿预订" },
         { name: "Booking", url: "https://www.booking.com", desc: "海外酒店" },
+      ],
+    },
+
+    /* ───────── 本地生活 ───────── */
+    {
+      name: "地图与本地生活",
+      icon: "📍",
+      links: [
+        { name: "腾讯地图", url: "https://map.qq.com", desc: "微信同款导航", py: "txdt", pyFull: "tengxunditu" },
+        { name: "Apple 地图", url: "https://maps.apple.com", desc: "苹果导航" },
+        { name: "美团", url: "https://www.meituan.com", desc: "外卖团购", py: "mt", pyFull: "meituan" },
+        { name: "饿了么", url: "https://www.ele.me", desc: "外卖", py: "elm", pyFull: "eleme" },
+        { name: "口碑", url: "https://www.koubei.com", desc: "到店优惠", py: "kb", pyFull: "koubei" },
+        { name: "中国天气", url: "https://www.weather.com.cn", desc: "国内预报", py: "zgtq", pyFull: "zhongguotianqi" },
+        { name: "墨迹天气", url: "https://www.moji.com", desc: "实时天气", py: "mjtq", pyFull: "mojitianqi" },
+        { name: "快递 100", url: "https://www.kuaidi100.com", desc: "查快递", py: "kd100", pyFull: "kuaidi100" },
+        { name: "下厨房", url: "https://www.xiachufang.com", desc: "菜谱", py: "xcf", pyFull: "xiachufang" },
+      ],
+    },
+
+    /* ───────── 新闻 ───────── */
+    {
+      name: "新闻与阅读",
+      icon: "📰",
+      links: [
+        { name: "新华网", url: "https://www.news.cn", desc: "通讯社", py: "xhw", pyFull: "xinhuawang" },
+        { name: "人民网", url: "https://www.people.com.cn", desc: "人民日报", py: "rmw", pyFull: "renminwang" },
+        { name: "澎湃新闻", url: "https://www.thepaper.cn", desc: "时政深度", py: "ppxw", pyFull: "pengpaixinwen" },
+        { name: "财新", url: "https://www.caixin.com", desc: "财经报道", py: "cx", pyFull: "caixin" },
+        { name: "晚点 LatePost", url: "https://www.latepost.com", desc: "商业特稿", py: "wdlp", pyFull: "wandian" },
+        { name: "BBC", url: "https://www.bbc.com", desc: "国际新闻" },
+        { name: "路透社", url: "https://www.reuters.com", desc: "国际通讯社", py: "lts", pyFull: "lutoushe" },
+        { name: "联合早报", url: "https://www.zaobao.com", desc: "海外中文", py: "lhzb", pyFull: "lianhezaobao" },
+        { name: "豆瓣阅读", url: "https://read.douban.com", desc: "电子书", py: "dbyd", pyFull: "doubanyuedu" },
       ],
     },
 

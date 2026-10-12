@@ -197,6 +197,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
   });
 
   document.addEventListener("click", (ev) => {
+    if (!addPop.hidden && !addPop.contains(ev.target) && ev.target !== addBtn) closeAdd(false);
     if (palettePop.hidden) return;
     if (palettePop.contains(ev.target) || paletteBtn.contains(ev.target)) return;
     closePalette();
@@ -314,6 +315,28 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
   footerText.textContent = SITE.footer || "";
   footerText.hidden = !SITE.footer;
 
+  /* 「我的收藏」只活在 localStorage：页面上加的链接、导入的书签都进这里，
+     data.js 一个字节都不改。换设备要靠导出的书签 HTML。 */
+  const CUSTOM_CAT = "我的收藏";
+  const CUSTOM_KEY = "nav:custom-links";
+
+  function loadCustomLinks() {
+    return store
+      .get(CUSTOM_KEY, [])
+      .filter((l) => l && l.name && safeUrl(l.url))
+      .map((l) => ({
+        name: String(l.name).slice(0, 40),
+        url: safeUrl(l.url),
+        desc: String(l.desc || "").slice(0, 40),
+        custom: true,
+      }));
+  }
+
+  let customLinks = loadCustomLinks();
+  if (customLinks.length) {
+    CATEGORIES.unshift({ name: CUSTOM_CAT, icon: "★", links: customLinks });
+  }
+
   const totalLinks = CATEGORIES.reduce((sum, c) => sum + c.links.length, 0);
   $("stats").textContent = CATEGORIES.length + " 个分类 · " + totalLinks + " 个链接";
 
@@ -381,6 +404,133 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
   function searchWeb(query) {
     window.open(currentEngine().base + encodeURIComponent(query), "_blank", "noopener");
   }
+
+  /* ───────────────────────── 添加链接 / 导入导出书签 ───────────────────────── */
+
+  const addBtn = $("add-toggle");
+  const addPop = $("add-pop");
+  const addErr = $("add-error");
+
+  const ADD_ICON =
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+  addBtn.innerHTML = ADD_ICON;
+
+  function showAddError(msg) {
+    addErr.textContent = msg;
+    addErr.hidden = !msg;
+  }
+
+  function closeAdd(restoreFocus) {
+    addPop.hidden = true;
+    addBtn.setAttribute("aria-expanded", "false");
+    showAddError("");
+    if (restoreFocus) addBtn.focus();
+  }
+
+  function openAdd() {
+    addPop.hidden = false;
+    addBtn.setAttribute("aria-expanded", "true");
+    $("add-name").focus();
+  }
+
+  addBtn.addEventListener("click", () => {
+    if (addPop.hidden) openAdd();
+    else closeAdd(false);
+  });
+
+  /* 网址只收 http(s)。用户省掉协议时补 https，别的协议直接拒绝。 */
+  function normalizeLinkUrl(raw) {
+    let s = String(raw || "").trim();
+    if (!s) return "";
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(s)) s = "https://" + s;
+    return safeUrl(s);
+  }
+
+  function saveCustomLinks(list) {
+    store.set(CUSTOM_KEY, list.map((l) => ({ name: l.name, url: l.url, desc: l.desc || "" })));
+  }
+
+  /* 卡片上的删除只对「我的收藏」出现：配置里的链接删不掉，那是 data.js 的事 */
+  function attachRemove(pill, link) {
+    if (!link.custom) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pill-remove";
+    btn.textContent = "×";
+    btn.title = "从我的收藏移除";
+    btn.setAttribute("aria-label", "移除「" + link.name + "」");
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      customLinks = customLinks.filter((l) => !(l.url === link.url && l.name === link.name));
+      saveCustomLinks(customLinks);
+      location.reload();
+    });
+    pill.appendChild(btn);
+  }
+
+  addPop.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const name = $("add-name").value.trim();
+    const url = normalizeLinkUrl($("add-url").value);
+    const desc = $("add-desc").value.trim();
+    if (!name) { showAddError("请填写名称"); return; }
+    if (!url) { showAddError("网址需要以 http:// 或 https:// 开头"); return; }
+    if (customLinks.some((l) => l.url === url)) { showAddError("这个网址已经在收藏里了"); return; }
+    customLinks.push({ name: name.slice(0, 40), url: url, desc: desc.slice(0, 40), custom: true });
+    saveCustomLinks(customLinks);
+    location.reload();
+  });
+
+  /* 浏览器「导出书签」得到的是 Netscape 格式：一堆 <A HREF="...">名称</A>。
+     用 DOMParser 而不是正则，属性顺序和换行都无所谓；只取 http(s)。 */
+  function parseBookmarkHtml(text) {
+    const doc = new DOMParser().parseFromString(text, "text/html");
+    const out = [];
+    const seen = new Set(customLinks.map((l) => l.url));
+    doc.querySelectorAll("a[href]").forEach((a) => {
+      const url = safeUrl(a.getAttribute("href"));
+      const name = (a.textContent || "").trim();
+      if (!url || !name || seen.has(url)) return;
+      seen.add(url);
+      out.push({ name: name.slice(0, 40), url: url, desc: "", custom: true });
+    });
+    return out;
+  }
+
+  $("add-import").addEventListener("click", () => $("add-file").click());
+
+  $("add-file").addEventListener("change", () => {
+    const file = $("add-file").files && $("add-file").files[0];
+    $("add-file").value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const added = parseBookmarkHtml(String(reader.result || ""));
+      if (!added.length) { showAddError("没有解析到新的 http(s) 书签"); return; }
+      customLinks = customLinks.concat(added).slice(0, 500);
+      saveCustomLinks(customLinks);
+      location.reload();
+    };
+    reader.onerror = () => showAddError("文件读取失败");
+    reader.readAsText(file);
+  });
+
+  /* 导出成浏览器能再导回去的书签 HTML，这样换设备不是死路 */
+  $("add-export").addEventListener("click", () => {
+    if (!customLinks.length) { showAddError("收藏是空的，没有可导出的内容"); return; }
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const items = customLinks
+      .map((l) => '<DT><A HREF="' + esc(l.url) + '">' + esc(l.name) + "</A>")
+      .join("\n");
+    const html = "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META CHARSET=\"UTF-8\">\n<DL><p>\n" + items + "\n</DL><p>\n";
+    const blob = new Blob([html], { type: "text/html" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "我的收藏.html";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
 
   function engineButton(label, query) {
     const btn = document.createElement("button");
@@ -828,6 +978,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     arrow.setAttribute("aria-hidden", "true");
     arrow.textContent = "↗";
     a.appendChild(arrow);
+    attachRemove(a, link);
 
     a.addEventListener("click", (ev) => {
       if (Date.now() - dragEndAt < 300) {
@@ -859,6 +1010,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     a.className = "side-item";
     a.href = "#" + id;
     a.dataset.target = id;
+    a.dataset.name = name; // 撤销排序时按分类名把侧栏项排回去
     a.innerHTML =
       '<span class="side-emoji" aria-hidden="true"></span><span class="side-name"></span>' +
       '<span class="side-count" aria-hidden="true"></span>';
@@ -1047,10 +1199,30 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
 
   const sortTip = document.createElement("div");
   sortTip.className = "sort-tip";
-  sortTip.innerHTML = '<span></span><button type="button">重置排序</button>';
+  sortTip.innerHTML =
+    '<span></span><span class="sort-tip-actions">' +
+    '<button type="button" data-act="undo">撤销上一步</button>' +
+    '<button type="button" data-act="reset">重置排序</button></span>';
   sortTip.querySelector("span").textContent =
     "自定义排序已启用：拖动分类标题可换分类顺序，拖动卡片可换链接顺序；键盘可用 Alt + ↑ / ↓ 移动；改动只存在本机浏览器里，配置文件不受影响。";
   content.insertBefore(sortTip, content.firstChild);
+
+  /* 只记「改了哪一份顺序」，撤销时写回上一步的数组。
+     不做整页快照：分类名和链接名就是存储键，够定位，也不用为了撤销去刷新页面。 */
+  const undoStack = [];
+  const UNDO_LIMIT = 30;
+
+  function rememberOrder(key, before) {
+    undoStack.push({ key: key, before: before.slice() });
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    syncUndoButton();
+  }
+
+  function syncUndoButton() {
+    const btn = sortTip.querySelector('[data-act="undo"]');
+    btn.hidden = undoStack.length === 0;
+  }
+  syncUndoButton();
 
   function hasCustomOrder() {
     try {
@@ -1065,7 +1237,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
 
   if (hasCustomOrder()) sortTip.classList.add("is-on");
 
-  sortTip.querySelector("button").addEventListener("click", () => {
+  sortTip.querySelector('[data-act="reset"]').addEventListener("click", () => {
     try {
       const doomed = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -1078,6 +1250,44 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     location.reload();
   });
 
+  /* 撤销不刷新页面：把上一步的名字数组按现在的 DOM 重排回去，再写回存储。
+     记录里没有的项（撤销跨过了一次「新增链接」）保持原位不动。 */
+  function orderByNames(parent, names, readName) {
+    const kids = Array.prototype.slice.call(parent.children);
+    const ranked = [];
+    const rest = [];
+    kids.forEach((el) => {
+      const name = readName(el);
+      const i = name ? names.indexOf(name) : -1;
+      if (i < 0) rest.push(el);
+      else ranked.push({ el: el, i: i });
+    });
+    ranked.sort((a, b) => a.i - b.i);
+    ranked.forEach((r) => parent.appendChild(r.el));
+    rest.forEach((el) => parent.appendChild(el));
+  }
+
+  sortTip.querySelector('[data-act="undo"]').addEventListener("click", () => {
+    const step = undoStack.pop();
+    syncUndoButton();
+    if (!step) return;
+    if (step.key === "nav:panel-order") {
+      orderByNames(content, step.before, (el) => {
+        const hit = panels.filter((p) => p.panel === el)[0];
+        return hit ? hit.name : "";
+      });
+      orderByNames(sideNav, step.before, (el) => el.dataset.name || "");
+      store.set(step.key, step.before);
+    } else if (step.key.indexOf("nav:link-order:") === 0) {
+      const catName = step.key.slice("nav:link-order:".length);
+      const entry = panels.filter((p) => p.name === catName)[0];
+      const grid = entry && entry.panel.querySelector(".link-grid");
+      if (grid) orderByNames(grid, step.before, (el) => el.dataset.name || "");
+      store.set(step.key, step.before);
+    }
+    if (!hasCustomOrder()) sortTip.classList.remove("is-on");
+  });
+
   let dragState = null; // { type: 'pill'|'panel', el, ... , moved }
 
   function initSorting() {
@@ -1086,16 +1296,24 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
       for (let i = 0; i < list.length; i++) list[i].classList.remove("is-drop-target");
     };
 
-    function savePillOrder(grid, catName) {
+    function readPillOrder(grid) {
       const arr = [];
       const kids = grid.children;
       for (let i = 0; i < kids.length; i++) {
         if (kids[i].dataset && kids[i].dataset.name) arr.push(kids[i].dataset.name);
       }
-      store.set("nav:link-order:" + catName, arr);
+      return arr;
     }
 
-    function savePanelOrder() {
+    function savePillOrder(grid, catName, before) {
+      const key = "nav:link-order:" + catName;
+      store.set(key, readPillOrder(grid));
+      /* before 在拖动开始时抓取：第一次改这个分类时存储里没有旧值，
+         退回点就是 data.js 的原始顺序。键盘连按每次只挪一格，撤销正好一步步退 */
+      rememberOrder(key, before);
+    }
+
+    function readPanelOrder() {
       const names = {};
       panels.forEach((p) => {
         names[p.panel.id] = p.name;
@@ -1105,7 +1323,12 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
       for (let i = 0; i < kids.length; i++) {
         if (names[kids[i].id]) order.push(names[kids[i].id]);
       }
-      store.set("nav:panel-order", order);
+      return order;
+    }
+
+    function savePanelOrder(before) {
+      store.set("nav:panel-order", readPanelOrder());
+      rememberOrder("nav:panel-order", before);
     }
 
     /* 键盘换序用的分类移动（Alt+↑/↓），侧边栏同步跟动 */
@@ -1120,6 +1343,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
       if (dir < 0) content.insertBefore(panel, sib);
       else content.insertBefore(sib, panel);
 
+      const before = readPanelOrder();
       const side = entry.sideItem;
       const sideSib = dir < 0 ? side.previousElementSibling : side.nextElementSibling;
       if (side && sideSib) {
@@ -1127,7 +1351,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
         else sideNav.insertBefore(sideSib, side);
       }
 
-      savePanelOrder();
+      savePanelOrder(before);
       sortTip.classList.add("is-on");
       const head = panel.querySelector(".panel-head");
       if (head) head.focus();
@@ -1148,8 +1372,8 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
         return;
       }
       dragEndAt = Date.now();
-      if (state.type === "pill") savePillOrder(state.grid, state.name);
-      else savePanelOrder();
+      if (state.type === "pill") savePillOrder(state.grid, state.name, state.before);
+      else savePanelOrder(state.before);
       sortTip.classList.add("is-on");
     }
 
@@ -1183,9 +1407,10 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
           const sib = ev.key === "ArrowUp" ? pill.previousElementSibling : pill.nextElementSibling;
           if (!sib) return;
           ev.preventDefault();
+          const before = readPillOrder(grid);
           if (ev.key === "ArrowUp") grid.insertBefore(pill, sib);
           else grid.insertBefore(sib, pill);
-          savePillOrder(grid, entry.name);
+          savePillOrder(grid, entry.name, before);
           sortTip.classList.add("is-on");
           pill.focus();
         });
@@ -1202,6 +1427,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
             el: pill,
             grid: grid,
             name: entry.name,
+            before: store.get("nav:link-order:" + entry.name, null) || readPillOrder(grid),
             moved: false,
             dropped: false,
             restore: () => before.forEach((c) => grid.appendChild(c)),
@@ -1251,6 +1477,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
           dragState = {
             type: "panel",
             el: entry.panel,
+            before: store.get("nav:panel-order", null) || readPanelOrder(),
             moved: false,
             dropped: false,
             restore: () => {
@@ -1310,6 +1537,10 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
   /* ───────────────────────── 搜索：检索字段组装 / 排序 / 高亮 ─────────────────────────
      foldText / tokenize / subseqPenalty / scoreToken 已抽到 js/text.js（纯函数、可单测），
      这里只保留需要 DOM 的部分。 */
+
+  /* 宽词（比如单字母）能命中上百条，全部铺开等于没有搜索。
+     下拉本来就只给 7 条，页面上也收在这个数以内，剩下的用提示说明。 */
+  const SEARCH_LIMIT = 24;
 
   /* 一条链接对整组 token 的总分：任一 token 不匹配就整条不匹配 */
   function scoreEntry(entry, tokens) {
@@ -1524,16 +1755,15 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
 
   let lastRanked = [];
 
-  function renderHint(query, count) {
+  function renderHint(query, count, shown) {
     hint.innerHTML = "";
     hint.hidden = false;
     if (count > 0) {
       /* 触摸端没有物理键盘，↑↓/Enter/Esc 都不存在，别宣传不存在的快捷键 */
+      const capped = shown < count;
       hint.appendChild(
         document.createTextNode(
-          "找到 " +
-            count +
-            " 个结果" +
+          (capped ? "找到 " + count + " 个，显示最相关的 " + shown + " 个" : "找到 " + count + " 个结果") +
             (FINE_POINTER.matches
               ? " · ↑↓ 选择 · Enter 打开 · Esc 清除"
               : " · 点一下直接打开")
@@ -1596,17 +1826,16 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     hint.hidden = true;
     empty.hidden = true;
 
-    const counts = new Map();
-    let count = 0;
+    const ranked = rank(query);
+    const shown = new Set();
+    for (let i = 0; i < ranked.length && i < SEARCH_LIMIT; i++) shown.add(ranked[i].entry);
 
+    const counts = new Map();
     entries.forEach((entry) => {
-      const hit = scoreEntry(entry, tokens) >= 0;
+      const hit = shown.has(entry);
       entry.pill.classList.toggle("is-hidden", !hit);
       setHighlight(entry, hit ? tokens : null);
-      if (hit) {
-        count++;
-        counts.set(entry.panel, (counts.get(entry.panel) || 0) + 1);
-      }
+      if (hit) counts.set(entry.panel, (counts.get(entry.panel) || 0) + 1);
     });
 
     panels.forEach((p) => {
@@ -1615,10 +1844,10 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
       p.sideItem.classList.toggle("is-dimmed", hidden);
     });
 
-    lastRanked = rank(query);
-    renderHint(query, count);
+    lastRanked = ranked;
+    renderHint(query, ranked.length, shown.size);
 
-    if (count > 0) empty.hidden = true;
+    if (ranked.length > 0) empty.hidden = true;
     else renderEmpty(query);
 
     syncPanelAria();
@@ -1818,9 +2047,13 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
       focusSearch();
       return;
     }
-    /* Esc：先关配色弹层（并把焦点还给按钮），再收下拉，再清空 */
+    /* Esc：先关配色弹层（并把焦点还给按钮），再关添加弹层，再收下拉，再清空 */
     if (ev.key === "Escape" && !palettePop.hidden) {
       closePalette(true);
+      return;
+    }
+    if (ev.key === "Escape" && !addPop.hidden) {
+      closeAdd(true);
       return;
     }
     if (ev.key === "/" && !typing) {
