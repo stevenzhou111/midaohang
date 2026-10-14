@@ -28,6 +28,18 @@
   --shadow-hover: 0 16px 36px rgba(24, 32, 56, 0.14);
   --inset-hi: rgba(255, 255, 255, 0.75);
   --blob-opacity: 0.55;
+
+  /* 错误 / 警告色也收进变量：原来 #be123c 直接写死在 .add-error 和 .pill-remove:hover 里，
+     换配色、切深浅色都调不动，是全站唯一游离在主题体系外的两种状态色 */
+  --danger: #be123c;
+  --danger-bg: rgba(190, 18, 60, 0.12);
+  --warn: #b45309;
+  --warn-bg: rgba(180, 83, 9, 0.12);
+
+  /* 交互过渡统一走这两个：原来每个元素各自写 0.12~0.25s 的 ease，
+     悬停手感和节奏对不齐 */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur: 0.15s;
 }
 
 html[data-theme="dark"] {
@@ -50,6 +62,11 @@ html[data-theme="dark"] {
   --shadow-hover: 0 18px 42px rgba(0, 0, 0, 0.6);
   --inset-hi: rgba(255, 255, 255, 0.07);
   --blob-opacity: 0.34;
+
+  --danger: #fda4af;
+  --danger-bg: rgba(253, 164, 175, 0.14);
+  --warn: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, 0.14);
 }
 
 /* ─────────────── 配色主题（data-accent） ───────────────
@@ -419,11 +436,7 @@ body {
 .add-error {
   margin: 0;
   font-size: 12px;
-  color: #be123c;
-}
-
-html[data-theme="dark"] .add-error {
-  color: #fda4af;
+  color: var(--danger);
 }
 
 .add-actions {
@@ -440,20 +453,38 @@ html[data-theme="dark"] .add-error {
   color: var(--text);
   font-size: 12.5px;
   cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease),
+    background var(--dur) var(--ease), filter var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 
-.add-actions button:hover {
+/* 次要按钮（导入书签 / 导出）：HTML 里给了 class，这里显式写出来 */
+.add-secondary {
+  color: var(--muted);
+}
+
+.add-actions .add-secondary:hover {
+  background: var(--hover);
   border-color: var(--accent-ink);
   color: var(--accent-ink);
 }
 
-.add-primary {
-  background: var(--accent);
+/* 主按钮必须比上面的 .add-actions button 更具体：两者权重都是 (0,1,0)，
+   同权重时后写的赢，所以只写 .add-primary 会被基础样式盖掉（实测渐变和白色文字全丢）。 */
+.add-actions .add-primary {
   border-color: transparent;
+  /* 白字不能压在 --accent 上：实测浅色主题的琥珀只有 3.19:1、深色的琥珀低到 1.67:1，
+     而深色主题的 --accent 本身就是浅色。跟品牌角标 / 选中的引擎一样用 --accent-grad-*，
+     实测 5 套配色都在 5.0:1 以上。 */
+  background: linear-gradient(135deg, var(--accent-grad-1, var(--accent)), var(--accent-grad-2, var(--accent-2)));
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent-grad-1, var(--accent)) 34%, transparent);
   color: #fff;
 }
 
-.add-primary:hover {
+.add-actions .add-primary:hover {
+  /* 原来这里只重复声明 color:#fff，等于没有任何悬停反馈 */
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent-grad-1, var(--accent)) 40%, transparent);
   color: #fff;
 }
 
@@ -464,19 +495,35 @@ html[data-theme="dark"] .add-error {
   color: var(--muted);
 }
 
+/* 移除按钮：原来用 padding: 0 2px 铺一个约 15px 的×，既够不到 24px 的点击目标，
+   又在 .pill 的 gap:10px 后面多撑出一个空档（箭头还占着位）。
+   现在给它撑到 24px 见方，并且排在箭头前面（见 app.js 的 attachRemove）。 */
 .pill-remove {
-  margin-left: 2px;
-  padding: 0 2px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   font-size: 15px;
   line-height: 1;
   cursor: pointer;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 
-.pill-remove:hover {
-  color: #be123c;
+.pill-remove:hover,
+.pill-remove:focus-visible {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+/* 有移除按钮时不再显示跳转箭头：两者挤在卡片尾部既拥挤，语义上也互斥 */
+.pill:has(.pill-remove) .pill-arrow {
+  display: none;
 }
 
 .hero-inner {
@@ -829,22 +876,16 @@ html[data-theme="dark"] .add-error {
   -webkit-backdrop-filter: blur(16px) saturate(150%);
   border: 1px solid var(--border);
   box-shadow: var(--shadow), inset 0 1px 0 var(--inset-hi);
-  transition: box-shadow 0.18s ease;
-}
-
-.panel:hover {
-  box-shadow: var(--shadow-hover), inset 0 1px 0 var(--inset-hi);
-}
-
-/* 原来下面还有一条独立的 .panel { scroll-margin-top: 24px; animation: … }，
-   选择器和上面完全相同、权重也一样，等于把同一个块拆成两半：
-   改属性时只改到其中一半就会静默失效。合并成一条。 */
-.panel {
+  transition: box-shadow var(--dur) var(--ease);
   animation: panel-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
   /* 曾经试过 content-visibility: auto + contain-intrinsic-size 跳过视口外渲染，
      但首屏时未渲染过的面板会按 320px 占位高度参与位置计算，
      侧栏高亮（读 rect.top + scrollY）和侧栏点击跳转都会算错位置。
      正确性优先，这里保持全部渲染。真正的首屏优化在 sw.js（图标库 SWR）和搜索防抖。 */
+}
+
+.panel:hover {
+  box-shadow: var(--shadow-hover), inset 0 1px 0 var(--inset-hi);
 }
 
 @keyframes panel-in {
@@ -986,9 +1027,11 @@ html[data-theme="dark"] .fav.has-img {
 .panel-title {
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 1.03rem;
+  /* 原来是 1.03rem（约 16.5px），和卡片名 / 侧栏项 / 建议名的 14px 几乎同级，
+     分类标题撑不起"这是这一块的标题"。拉到 1.15rem 并加大字重差。 */
+  font-size: 1.15rem;
   font-weight: 800;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.005em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1037,26 +1080,31 @@ html[data-theme="dark"] .fav.has-img {
 .link-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 6px;
+  gap: 5px;
 }
 
 .pill {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 14px;
-  border: 1px solid transparent;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 12px;
+  /* 网格视图下卡片原来完全透明、只靠 6px 间隙分隔，199 张卡片糊成一片。
+     给一点静止的底色和描边，扫读时能看清卡片边界。 */
+  background: var(--glass);
+  border: 1px solid var(--border);
   text-decoration: none;
   color: inherit;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 
 .pill:hover,
 .pill:focus-visible {
   background: var(--hover);
-  border-color: var(--border);
+  border-color: var(--accent-ink);
   transform: translateY(-2px);
+  box-shadow: var(--shadow);
 }
 
 /* 卡片是页面上数量最多的可聚焦元素（199 个），焦点环必须看得见 */
@@ -1086,11 +1134,13 @@ html[data-theme="dark"] .fav.has-img {
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 17px;
-  height: 17px;
+  /* 三种图标统一到 19px：原来位图 17px、SVG 18px、首字母 13.5px，
+     同一个 32px 方块里三种视觉重量，切换加载源时图标会明显"跳"一下 */
+  width: 19px;
+  height: 19px;
   object-fit: contain;
   opacity: 0;
-  transition: opacity 0.25s ease;
+  transition: opacity 0.25s var(--ease);
 }
 
 .fav.has-img .fav-img {
@@ -1103,7 +1153,7 @@ html[data-theme="dark"] .fav.has-img {
 }
 
 .fav-letter {
-  font-size: 13.5px;
+  font-size: 14.5px;
   font-weight: 700;
   color: var(--accent-ink);
 }
@@ -1115,7 +1165,7 @@ html[data-theme="dark"] .fav.has-img {
   display: grid;
   place-items: center;
   opacity: 0;
-  transition: opacity 0.25s ease;
+  transition: opacity 0.25s var(--ease);
 }
 
 .fav.has-svg .fav-svg {
@@ -1128,8 +1178,8 @@ html[data-theme="dark"] .fav.has-img {
 
 .fav-svg svg {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
   fill: currentColor;
   color: var(--text);
   opacity: 0.9;
@@ -1164,7 +1214,7 @@ html[data-theme="dark"] .fav.has-img {
   color: var(--muted);
   opacity: 0;
   transform: translateX(-5px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 
 .pill:hover .pill-arrow,
@@ -1387,13 +1437,13 @@ mark {
 /* ─────────────── 配置错误 / 警告面板 ─────────────── */
 
 .panel-msg.is-error {
-  border-color: rgba(244, 63, 94, 0.4);
-  background: linear-gradient(160deg, rgba(244, 63, 94, 0.12), var(--glass));
+  border-color: var(--danger);
+  background: linear-gradient(160deg, var(--danger-bg), var(--glass));
 }
 
 .panel-msg.is-warn {
-  border-color: rgba(245, 158, 11, 0.4);
-  background: linear-gradient(160deg, rgba(245, 158, 11, 0.12), var(--glass));
+  border-color: var(--warn);
+  background: linear-gradient(160deg, var(--warn-bg), var(--glass));
 }
 
 .msg-detail {
@@ -1576,6 +1626,13 @@ mark {
   .side-item {
     justify-content: center;
     padding: 8px 6px;
+  }
+
+  /* ≤640 时侧栏变成 21 个分类的多行网格（常有两三百像素高），
+     但 .panel 的 scroll-margin-top 还是 76px、JS 的 offsetForScroll() 也只给 92px，
+     点分类跳过去标题会被压在胶囊栏底下。这里按网格高度留足余量。 */
+  .panel {
+    scroll-margin-top: 210px;
   }
 
   /* .side-count { display: none } 已在 max-width:1000px 那段写过，

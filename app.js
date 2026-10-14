@@ -972,13 +972,15 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     }
 
     a.appendChild(body);
+    /* 移除按钮排在箭头之前：否则箭头先占一个位置，× 被挤到最右，
+       尾部又空又乱（.pill 的 gap 是固定的 10px） */
+    attachRemove(a, link);
 
     const arrow = document.createElement("span");
     arrow.className = "pill-arrow";
     arrow.setAttribute("aria-hidden", "true");
     arrow.textContent = "↗";
     a.appendChild(arrow);
-    attachRemove(a, link);
 
     a.addEventListener("click", (ev) => {
       if (Date.now() - dragEndAt < 300) {
