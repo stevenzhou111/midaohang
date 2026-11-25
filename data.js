@@ -56,6 +56,8 @@ window.SITE = {
     "kimi.com": "kimi.moonshot.cn",
     "v0.app": "v0.dev",
     "claude.com": "claude.ai",
+    "maps.apple.com": "apple.com",
+    "pan.baidu.com": "www.baidu.com",
   },
 
   /* 分类搜索别名：分类名 → "拼音首字母 完整拼音 英文"（可选）
@@ -100,6 +102,8 @@ window.SITE = {
         { name: "百度", url: "https://www.baidu.com", desc: "搜索", py: "bd", pyFull: "baidu" },
         { name: "淘宝", url: "https://www.taobao.com", desc: "购物", py: "tb", pyFull: "taobao" },
         { name: "Bilibili", url: "https://www.bilibili.com", desc: "弹幕视频", py: "blbl", pyFull: "bilibili" },
+        { name: "DeepL 翻译", url: "https://www.deepl.com/translator", desc: "高质量机翻" },
+        { name: "Google 翻译", url: "https://translate.google.com", desc: "多语言翻译", py: "ggfy", pyFull: "gugefanyi" },
       ],
     },
 
@@ -118,6 +122,12 @@ window.SITE = {
         { name: "秘塔搜索", url: "https://metaso.cn", desc: "无广告 AI 搜索", py: "mtss", pyFull: "mitasousuo" },
         { name: "Midjourney", url: "https://www.midjourney.com", desc: "AI 绘图" },
         { name: "Poe", url: "https://poe.com", desc: "多模型聚合" },
+        { name: "豆包", url: "https://www.doubao.com", desc: "字节 AI 助手", pyFull: "doubao" },
+        { name: "智谱清言", url: "https://chatglm.cn", desc: "GLM 对话", py: "zpqy", pyFull: "zhipuqingyan" },
+        { name: "NotebookLM", url: "https://notebooklm.google.com", desc: "AI 笔记研究" },
+        { name: "Suno", url: "https://suno.com", desc: "AI 音乐生成" },
+        { name: "可灵 AI", url: "https://klingai.com", desc: "AI 视频生成", py: "kl", pyFull: "keling" },
+        { name: "即梦 AI", url: "https://jimeng.jianying.com", desc: "AI 绘画视频", py: "jm", pyFull: "jimeng" },
       ],
     },
 
@@ -138,6 +148,10 @@ window.SITE = {
         { name: "npm", url: "https://www.npmjs.com", desc: "包 registry" },
         { name: "Excalidraw", url: "https://excalidraw.com", desc: "手绘风白板" },
         { name: "DevDocs", url: "https://devdocs.io", desc: "离线文档聚合" },
+        { name: "GitLab", url: "https://gitlab.com", desc: "代码托管 CI" },
+        { name: "Gitee 码云", url: "https://gitee.com", desc: "国内代码托管", py: "my", pyFull: "mayun" },
+        { name: "CodeSandbox", url: "https://codesandbox.io", desc: "在线 IDE" },
+        { name: "StackBlitz", url: "https://stackblitz.com", desc: "在线 IDE" },
       ],
     },
 
@@ -158,6 +172,9 @@ window.SITE = {
         { name: "freeCodeCamp", url: "https://www.freecodecamp.org", desc: "免费编程课程" },
         { name: "W3School", url: "https://www.w3school.com.cn", desc: "入门速查" },
         { name: "掘金", url: "https://juejin.cn", desc: "技术社区", py: "jj", pyFull: "juejin" },
+        { name: "web.dev", url: "https://web.dev", desc: "Web 最佳实践" },
+        { name: "JavaScript.info", url: "https://javascript.info", desc: "现代 JS 教程" },
+        { name: "菜鸟教程", url: "https://www.runoob.com", desc: "入门速查", py: "cnjc", pyFull: "cainiaojiaocheng" },
       ],
     },
 
@@ -212,6 +229,9 @@ window.SITE = {
         { name: "抖音", url: "https://www.douyin.com", desc: "短视频", py: "dy", pyFull: "douyin" },
         { name: "喜马拉雅", url: "https://www.ximalaya.com", desc: "有声内容", py: "xmly", pyFull: "ximalaya" },
         { name: "Twitch", url: "https://www.twitch.tv", desc: "游戏直播" },
+        { name: "腾讯视频", url: "https://v.qq.com", desc: "影视综艺", py: "txsp", pyFull: "tengxunshipin" },
+        { name: "芒果 TV", url: "https://www.mgtv.com", desc: "综艺剧集", py: "mg", pyFull: "mangguo" },
+        { name: "小宇宙", url: "https://www.xiaoyuzhoufm.com", desc: "播客", py: "xyz", pyFull: "xiaoyuzhou" },
       ],
     },
 
@@ -230,6 +250,13 @@ window.SITE = {
         { name: "Zoom", url: "https://zoom.us", desc: "视频会议" },
         { name: "印象笔记", url: "https://www.yinxiang.com", desc: "资料收集", py: "yxbj", pyFull: "yinxiangbiji" },
         { name: "1Password", url: "https://1password.com", desc: "密码管理" },
+        { name: "QQ 邮箱", url: "https://mail.qq.com", desc: "邮箱", py: "qqyx", pyFull: "qqyouxiang" },
+        { name: "Outlook", url: "https://outlook.live.com", desc: "微软邮箱" },
+        { name: "百度网盘", url: "https://pan.baidu.com", desc: "云存储", py: "bdwp", pyFull: "baiduwangpan" },
+        { name: "阿里云盘", url: "https://www.alipan.com", desc: "云存储", py: "alwp", pyFull: "aliyunwangpan" },
+        { name: "OneDrive", url: "https://onedrive.live.com", desc: "微软云盘" },
+        { name: "ProcessOn", url: "https://www.processon.com", desc: "在线流程图" },
+        { name: "draw.io", url: "https://app.diagrams.net", desc: "在线绘图" },
       ],
     },
 
@@ -297,6 +324,8 @@ window.SITE = {
         { name: "ResearchGate", url: "https://www.researchgate.net", desc: "学者社交" },
         { name: "PubMed", url: "https://pubmed.ncbi.nlm.nih.gov", desc: "生物医学文献" },
         { name: "Kaggle", url: "https://www.kaggle.com", desc: "数据集与竞赛" },
+        { name: "Overleaf", url: "https://www.overleaf.com", desc: "LaTeX 协作" },
+        { name: "Connected Papers", url: "https://www.connectedpapers.com", desc: "论文图谱" },
       ],
     },
 
@@ -349,6 +378,8 @@ window.SITE = {
         { name: "路透社", url: "https://www.reuters.com", desc: "国际通讯社", py: "lts", pyFull: "lutoushe" },
         { name: "联合早报", url: "https://www.zaobao.com", desc: "海外中文", py: "lhzb", pyFull: "lianhezaobao" },
         { name: "豆瓣阅读", url: "https://read.douban.com", desc: "电子书", py: "dbyd", pyFull: "doubanyuedu" },
+        { name: "FT 中文网", url: "https://www.ftchinese.com", desc: "财经新闻", py: "ftzw" },
+        { name: "华尔街见闻", url: "https://wallstreetcn.com", desc: "全球财经", py: "hejjw", pyFull: "huaerjiejianwen" },
       ],
     },
 
@@ -383,6 +414,9 @@ window.SITE = {
         { name: "Photopea", url: "https://www.photopea.com", desc: "网页版 PS" },
         { name: "Carbon", url: "https://carbon.now.sh", desc: "代码截图" },
         { name: "UptimeRobot", url: "https://uptimerobot.com", desc: "站点可用监控" },
+        { name: "Squoosh", url: "https://squoosh.app", desc: "图片压缩对比" },
+        { name: "Smallpdf", url: "https://smallpdf.com", desc: "PDF 工具" },
+        { name: "Speedtest", url: "https://www.speedtest.net", desc: "网速测试" },
       ],
     },
 
@@ -400,6 +434,8 @@ window.SITE = {
         { name: "游民星空", url: "https://www.gamersky.com", desc: "游戏资讯", py: "ymxk", pyFull: "youminxingkong" },
         { name: "3DM", url: "https://www.3dmgame.com", desc: "游戏攻略", py: "3dm" },
         { name: "WeGame", url: "https://wegame.com.cn", desc: "腾讯游戏平台" },
+        { name: "小黑盒", url: "https://xiaoheihe.cn", desc: "玩家社区", py: "xhh", pyFull: "xiaoheihe" },
+        { name: "NGA", url: "https://bbs.nga.cn", desc: "游戏论坛" },
       ],
     },
 

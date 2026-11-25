@@ -554,7 +554,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
   /* 本地图标库：icons.js（品牌 SVG）+ icons-img.js（抓取的真实 favicon data URI）。
      索引的构建与查询在 js/icons-index.js（纯函数、可单测）；
      这里只负责"什么时候建"和"位图库异步到货后重建"。
-     icons-img.js 是异步加载的（150KB，不能挡首屏），所以索引要能重建。 */
+     icons-img.js 是异步加载的（br 约 239KB，不能挡首屏），所以索引要能重建。 */
   function makeIconIndex() {
     return buildIconIndex(window.ICONS, window.ICONS_IMG, (window.SITE && window.SITE.iconAlias) || {});
   }
@@ -2078,7 +2078,7 @@ import { buildIconIndex, createLocalIconLookup } from "./js/icons-index.js";
     applyFilter();
     updateSpy();
 
-    /* 位图图标库（icons-img.js，150KB）是异步的：先挂上监听，
+    /* 位图图标库（icons-img.js，br 约 239KB）是异步的：先挂上监听，
        它一执行完就会补图标；期间所有图标先用首字母/SVG 顶着，
        也不去试远程兜底（省掉几十个白费请求） */
     watchBitmapLibrary();
